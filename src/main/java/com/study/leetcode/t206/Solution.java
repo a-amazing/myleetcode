@@ -5,17 +5,14 @@ public class Solution {
         if(head == null || head.next == null){
             return head;
         }
-        return reverse(head,head.next);
-    }
-
-    public ListNode reverse(ListNode current,ListNode next){
-        ListNode temp = next;
-        while(next.next != null){
-            temp = next.next;
-            next.next = current;
-            temp = reverse(next,temp);
+        ListNode pre = null;
+        ListNode current = head;
+        while (current != null){
+            ListNode temp = current.next;
+            current.next = pre;
+            pre = current;
+            current = temp;
         }
-
-        return temp;
+        return pre;
     }
 }
