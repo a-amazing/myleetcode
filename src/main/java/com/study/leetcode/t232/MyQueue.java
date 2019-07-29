@@ -19,28 +19,48 @@ import java.util.Stack;
 public class MyQueue {
 
     Stack<Integer> stack;
+    Stack<Integer> temp;
     /** Initialize your data structure here. */
     public MyQueue() {
         stack = new Stack<Integer>();
+        temp = new Stack<Integer>();
     }
 
     /** Push element x to the back of queue. */
     public void push(int x) {
+        if(stack.isEmpty()){
+            stack.push(x);
+            return;
+        }
+        reverseAndCopy(stack,temp);
+        temp.push(x);
+        reverseAndCopy(temp,stack);
+    }
 
+    private void reverseAndCopy(Stack<Integer> from, Stack<Integer> to) {
+        while(!from.isEmpty()){
+            to.push(from.pop());
+        }
     }
 
     /** Removes the element from in front of queue and returns that element. */
     public int pop() {
-        return 0;
+        if (stack.isEmpty()){
+            return 0;
+        }
+        return stack.pop();
     }
 
     /** Get the front element. */
     public int peek() {
-        return 0;
+        if (stack.isEmpty()){
+            return 0;
+        }
+        return stack.peek();
     }
 
     /** Returns whether the queue is empty. */
     public boolean empty() {
-        return false;
+        return stack.isEmpty();
     }
 }
