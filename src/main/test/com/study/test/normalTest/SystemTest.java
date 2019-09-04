@@ -1,4 +1,4 @@
-package com.study.test;
+package com.study.test.normalTest;
 
 /**
  * @author:wangyi
