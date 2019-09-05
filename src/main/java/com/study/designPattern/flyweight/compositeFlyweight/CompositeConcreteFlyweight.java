@@ -11,15 +11,14 @@ public class CompositeConcreteFlyweight implements Flyweight {
 
     private List<Flyweight> list = new ArrayList<>();
 
-    public void add(Flyweight flyweight){
+    public void add(Flyweight flyweight) {
         list.add(flyweight);
     }
 
-    public void remove(Flyweight flyweight){
+    public void remove(Flyweight flyweight) {
         list.remove(flyweight);
     }
 
-    @Override
     public void operate(UnsharedConcreteFlyweight state) {
 
     }
