@@ -1,4 +1,4 @@
-package com.study.sort.bubbleSort;
+package com.study.geekTime.algoAndStructure.sort.bubbleSort;
 
 import java.util.Arrays;
 

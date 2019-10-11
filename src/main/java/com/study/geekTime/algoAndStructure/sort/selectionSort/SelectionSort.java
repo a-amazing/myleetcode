@@ -1,4 +1,4 @@
-package com.study.sort.selectionSort;
+package com.study.geekTime.algoAndStructure.sort.selectionSort;
 
 import java.util.Arrays;
 

@@ -1,4 +1,4 @@
-package com.study.sort.mergeSort;
+package com.study.geekTime.algoAndStructure.sort.mergeSort;
 
 import java.util.Arrays;
 

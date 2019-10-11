@@ -1,4 +1,4 @@
-package com.study.geekTime.search.binarySearch;
+package com.study.geekTime.algoAndStructure.search.binarySearch;
 
 /**
  * @author:wangyi
