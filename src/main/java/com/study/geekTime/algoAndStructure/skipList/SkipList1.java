@@ -9,6 +9,7 @@ package com.study.geekTime.algoAndStructure.skipList;
 public class SkipList1 {
 
     private static final float SKIPLIST_P = 0.5f;
+    //按照每两个元素/索引一级索引来算,最多可以为长度为2^16的链表存储索引链
     private static final int MAX_LEVEL = 16;
 
     private int levelCount = 1;
