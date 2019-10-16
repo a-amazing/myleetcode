@@ -98,7 +98,7 @@
      }
      ```
 
-     - NameService接口
+   - NameService接口
 
      ```java
      /**
@@ -121,7 +121,7 @@
      }
      ```
 
-     -  服务接口,以HelloService为例
+   - 服务接口,以HelloService为例
 
      ```java
      public interface HelloService {
@@ -129,4 +129,152 @@
      }
      ```
 
-4. 
+4. 代码实现
+
+   - 序列化与反序列化
+
+     ```java
+     public interface Serializer<T> {
+         /**
+          * 计算对象序列化后的长度，主要用于申请存放序列化数据的字节数组
+          * @param entry 待序列化的对象
+          * @return 对象序列化后的长度
+          */
+         int size(T entry);
+     
+         /**
+          * 序列化对象。将给定的对象序列化成字节数组
+          * @param entry 待序列化的对象
+          * @param bytes 存放序列化数据的字节数组
+          * @param offset 数组的偏移量，从这个位置开始写入序列化数据
+          * @param length 对象序列化后的长度，也就是{@link Serializer#size(java.lang.Object)}方法的返回值。
+          */
+         void serialize(T entry, byte[] bytes, int offset, int length);
+     
+         /**
+          * 反序列化对象
+          * @param bytes 存放序列化数据的字节数组
+          * @param offset 数组的偏移量，从这个位置开始写入序列化数据
+          * @param length 对象序列化后的长度
+          * @return 反序列化之后生成的对象
+          */
+         T parse(byte[] bytes, int offset, int length);
+     
+         /**
+          * 用一个字节标识对象类型，每种类型的数据应该具有不同的类型值
+          */
+         byte type();
+     
+         /**
+          * 返回序列化对象类型的 Class 对象。
+          */
+         Class<T> getSerializeClass();
+     }
+     ```
+
+     对应不同Class的序列化实现可以通过继承上面的接口实现,如对应String序列化的StringSerializer
+
+     ```java
+     public class StringSerializer implements Serializer<String> {
+         @Override
+         public int size(String entry) {
+             return entry.getBytes(StandardCharsets.UTF_8).length;
+         }
+     
+         @Override
+         public void serialize(String entry, byte[] bytes, int offset, int length) {
+             byte [] strBytes = entry.getBytes(StandardCharsets.UTF_8);
+             System.arraycopy(strBytes, 0, bytes, offset, strBytes.length);
+         }
+     
+         @Override
+         public String parse(byte[] bytes, int offset, int length) {
+             return new String(bytes, offset, length, StandardCharsets.UTF_8);
+         }
+     
+         @Override
+         public byte type() {
+             return Types.TYPE_STRING;
+         }
+     
+         @Override
+         public Class<String> getSerializeClass() {
+             return String.class;
+         }
+     }
+     ```
+
+   - 网络通信
+
+     CompletableFuture
+
+     可以直接通过get方法同步获取响应结果,也可以使用then开头的一系列异步方法进行异步调用 
+
+     ```java
+     public interface Transport {
+         /**
+          * 发送请求命令
+          * @param request 请求命令
+          * @return 返回值是一个 Future，Future
+          */
+         CompletableFuture<Command> send(Command request);
+     }
+     ```
+
+     请求和响应数据都抽象成了一个 Command 类
+
+     ```java
+     public class Command {
+         protected Header header;
+         //要传输的数据,已经通过序列化为byte[]
+         private byte [] payload;
+         //...
+     }
+     
+     public class Header {
+         //唯一标识一次请求
+         private int requestId;
+         //传输协议对应的版本,由服务端确认是否支持
+         private int version;
+         //序列化对应Serializer
+         private int type;
+         // ...
+     }
+     public class ResponseHeader extends Header {
+         //响应码
+         private int code;
+         //错误信息
+         private String error;
+         // ...
+     }
+     ```
+
+     Netty实现的Transport类
+
+     ```java
+     @Override
+     public  CompletableFuture<Command> send(Command request) {
+         // 构建返回值
+         CompletableFuture<Command> completableFuture = new CompletableFuture<>();
+         try {
+             // 将在途请求放到 inFlightRequests 中
+             inFlightRequests.put(new ResponseFuture(request.getHeader().getRequestId(), completableFuture));
+             // 发送命令
+             channel.writeAndFlush(request).addListener((ChannelFutureListener) channelFuture -> {
+                 // 处理发送失败的情况
+                 if (!channelFuture.isSuccess()) {
+                     completableFuture.completeExceptionally(channelFuture.cause());
+                     channel.close();
+                 }
+             });
+         } catch (Throwable t) {
+             // 处理发送异常
+             inFlightRequests.remove(request.getHeader().getRequestId());
+             completableFuture.completeExceptionally(t);
+         }
+         return completableFuture;
+     }
+     ```
+
+     
+
