@@ -1,12 +1,14 @@
-### spring事务机制
+## spring事务机制
 
 ---
 
-#### 事务定义
+### 事务定义
 
 
 
-#### 踩坑记录
+---
+
+### 踩坑记录
 
 ##### 事务不生效
 
@@ -16,7 +18,7 @@
 
 - 通过ThreadLocal暴露aop代理对象
 
-  1. 开启暴露op代理到ThreadLocal支持（如下配置方式从spring3开始支持）
+  1. 开启暴露aop代理到ThreadLocal支持（如下配置方式从spring3开始支持）
 
      ```java
      <aop:aspectj-autoproxy expose-proxy="true"/><!—注解风格支持-->  
