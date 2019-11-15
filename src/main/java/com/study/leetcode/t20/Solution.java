@@ -1,7 +1,5 @@
 package com.study.leetcode.t20;
 
-import java.util.Stack;
-
 public class Solution {
     public boolean isValid(String s) {
         if(s.equals("")){

@@ -1,7 +1,6 @@
 package com.study.designPattern.composite.transparent;
 
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * @author:wangyi

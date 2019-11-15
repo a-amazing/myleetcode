@@ -1,7 +1,5 @@
 package com.study.leetcode.t141;
 
-import java.util.List;
-
 /**
  * @author wangyi
  * @date 2019/07/24
