@@ -29,3 +29,7 @@ hs_err_pid*
 .idea/*
 out/*
 target/*
+.project
+myleetcode.iml
+.settings/org.eclipse.m2e.core.prefs
+src/main/main.iml
