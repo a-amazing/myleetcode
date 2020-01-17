@@ -282,3 +282,20 @@ Class<?> contextClass = parameter.getContainingClass();
 Class<T> targetClass = (targetType instanceof Class ? (Class<T>) targetType : null);
 ```
 
+```java
+private final RequestResponseBodyAdviceChain advice;
+```
+
+```java
+//javaType即对参数Class的封装,有以下字段
+/**
+private static final long serialVersionUID = 1L;
+    protected final Class<?> _class;
+    protected final int _hash;
+    protected final Object _valueHandler;
+    protected final Object _typeHandler;
+    protected final boolean _asStatic;
+*/
+return this.objectMapper.readValue(inputMessage.getBody(), javaType);
+```
+

@@ -1,0 +1,87 @@
+   AutoConfigurationImportSelector.class
+   
+    //自动导入配置类的代码
+    @Override
+	public String[] selectImports(AnnotationMetadata annotationMetadata) {
+		if (!isEnabled(annotationMetadata)) {
+			return NO_IMPORTS;
+		}
+		AutoConfigurationMetadata autoConfigurationMetadata = AutoConfigurationMetadataLoader
+				.loadMetadata(this.beanClassLoader);
+		AutoConfigurationEntry autoConfigurationEntry = getAutoConfigurationEntry(autoConfigurationMetadata,
+				annotationMetadata);
+		return StringUtils.toStringArray(autoConfigurationEntry.getConfigurations());
+	}
+
+    /**
+	 * Return the {@link AutoConfigurationEntry} based on the {@link AnnotationMetadata}
+	 * of the importing {@link Configuration @Configuration} class.
+	 * @param autoConfigurationMetadata the auto-configuration metadata
+	 * @param annotationMetadata the annotation metadata of the configuration class
+	 * @return the auto-configurations that should be imported
+
+        根据引入的Configuration类的AnnotationMetadata(注解元数据),返会AutoConfigurationEntry(自动配置键值对)
+	 */
+	protected AutoConfigurationEntry getAutoConfigurationEntry(AutoConfigurationMetadata autoConfigurationMetadata,
+			AnnotationMetadata annotationMetadata) {
+        //如果不支持注解元数据
+		if (!isEnabled(annotationMetadata)) {
+			return EMPTY_ENTRY;
+		}
+		AnnotationAttributes attributes = getAttributes(annotationMetadata);
+		List<String> configurations = getCandidateConfigurations(annotationMetadata, attributes);
+		configurations = removeDuplicates(configurations);
+		Set<String> exclusions = getExclusions(annotationMetadata, attributes);
+		checkExcludedClasses(configurations, exclusions);
+		configurations.removeAll(exclusions);
+		configurations = filter(configurations, autoConfigurationMetadata);
+		fireAutoConfigurationImportEvents(configurations, exclusions);
+		return new AutoConfigurationEntry(configurations, exclusions);
+	}
+
+    /**
+	 * Return the appropriate {@link AnnotationAttributes} from the
+	 * {@link AnnotationMetadata}. By default this method will return attributes for
+	 * {@link #getAnnotationClass()}.
+	 * @param metadata the annotation metadata
+	 * @return annotation attributes
+        从注解元数据中获取合适的注解属性.默认情况下,这个方法会返回注解类名
+
+        注意:这边需要了解spi机制的基本内容(Spring扩展spi机制,机制略有不同)
+	 */
+	protected AnnotationAttributes getAttributes(AnnotationMetadata metadata) {
+		String name = getAnnotationClass().getName();
+        // SPI机制加载自动配置类
+		AnnotationAttributes attributes = AnnotationAttributes.fromMap(metadata.getAnnotationAttributes(name, true));
+		Assert.notNull(attributes, () -> "No auto-configuration attributes found. Is " + metadata.getClassName()
+				+ " annotated with " + ClassUtils.getShortName(name) + "?");
+		return attributes;
+	}
+
+
+    /**
+	 * Return the auto-configuration class names that should be considered. By default
+	 * this method will load candidates using {@link SpringFactoriesLoader} with
+	 * {@link #getSpringFactoriesLoaderFactoryClass()}.
+	 * @param metadata the source metadata
+	 * @param attributes the {@link #getAttributes(AnnotationMetadata) annotation
+	 * attributes}
+	 * @return a list of candidate configurations
+       返回所有应该被考虑到的自动配置类名.默认情况下,这个方法会通过SpringFactoryLoader和getSpringFactoryLoaderFactoryClass()
+       加载所有可能的类
+       public static final String FACTORIES_RESOURCE_LOCATION = "META-INF/spring.factories";
+       从META-INF/spring.factories文件中读取key = org.springframework.boot.autoconfigure.EnableAutoConfiguration的值
+       例如mybatis-spring-boot-starter中的值如下:
+       # Auto Configure
+        org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+        org.mybatis.spring.boot.autoconfigure.MybatisLanguageDriverAutoConfiguration,\
+        org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration
+        即自动加载值中的类
+	 */
+	protected List<String> getCandidateConfigurations(AnnotationMetadata metadata, AnnotationAttributes attributes) {
+		List<String> configurations = SpringFactoriesLoader.loadFactoryNames(getSpringFactoriesLoaderFactoryClass(),
+				getBeanClassLoader());
+		Assert.notEmpty(configurations, "No auto configuration classes found in META-INF/spring.factories. If you "
+				+ "are using a custom packaging, make sure that file is correct.");
+		return configurations;
+	}
