@@ -114,7 +114,7 @@ private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] 
 
 - setListeners：设置监听器
 
-  ```java
+  ```properties
   # Application Listeners
   org.springframework.context.ApplicationListener=\
   org.springframework.boot.ClearCachesApplicationListener,\
@@ -131,16 +131,41 @@ private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] 
   org.springframework.context.ApplicationListener=\
   org.springframework.boot.autoconfigure.BackgroundPreinitializer
       
-  ClearCachesApplicationListener：应用上下文加载完成后对缓存做清除工作
-  ParentContextCloserApplicationListener：监听双亲应用上下文的关闭事件并往自己的子应用上下文中传播
-  FileEncodingApplicationListener：检测系统文件编码与应用环境编码是否一致，如果系统文件编码和应用环境的编码不同则终止应用启动
-  AnsiOutputApplicationListener：根据 spring.output.ansi.enabled 参数配置 AnsiOutput
-  ConfigFileApplicationListener：从常见的那些约定的位置读取配置文件
-  DelegatingApplicationListener：监听到事件后转发给 application.properties 中配置的 context.listener.classes 的监听器
-  ClasspathLoggingApplicationListener：对环境就绪事件 ApplicationEnvironmentPreparedEvent 和应用失败事件 ApplicationFailedEvent 做出响应
-  LoggingApplicationListener：配置 LoggingSystem。使用 logging.config 环境变量指定的配置或者缺省配置
-  LiquibaseServiceLocatorApplicationListener：使用一个可以和 SpringBoot 可执行jar包配合工作的版本替换 LiquibaseServiceLocator
-  BackgroundPreinitializer：使用一个后台线程尽早触发一些耗时的初始化任务
+  #ClearCachesApplicationListener：应用上下文加载完成后对缓存做清除工作
+  #mvc容器监听root容器的关闭事件
+  #ParentContextCloserApplicationListener：监听双亲应用上下文的关闭事件并往自己的子应用上下文中传播
+  #FileEncodingApplicationListener：检测系统文件编码与应用环境编码是否一致，如果系统文件编码和应用环境的编码不同则终止应用启动
+  #AnsiOutputApplicationListener：根据 spring.output.ansi.enabled 参数配置 AnsiOutput
+  #ConfigFileApplicationListener：从常见的那些约定的位置读取配置文件
+  #委托监听器
+  #DelegatingApplicationListener：监听到事件后转发给 application.properties 中配置的 context.listener.classes 的监听器
+  #ClasspathLoggingApplicationListener：对环境就绪事件 ApplicationEnvironmentPreparedEvent 和应用失败事件 ApplicationFailedEvent 做出响应
+  #LoggingApplicationListener：配置 LoggingSystem。使用 logging.config 环境变量指定的配置或者缺省配置
+  #LiquibaseServiceLocatorApplicationListener：使用一个可以和 SpringBoot 可执行jar包配合工作的版本替换 LiquibaseServiceLocator
+#BackgroundPreinitializer：使用一个后台线程尽早触发一些耗时的初始化任务
+  ```
+  
+  ---
+  
+- deduceMainApplicationClass:确定主配置类
+
+  ```java
+  private Class<?> deduceMainApplicationClass() {
+      try {
+          StackTraceElement[] stackTrace = new RuntimeException().getStackTrace();
+          for (StackTraceElement stackTraceElement : stackTrace) {
+              // 从本方法开始往上爬，哪一层调用栈上有main方法，方法对应的类就是主配置类
+              //根据方法名匹配(只允许由一个main方法)
+              if ("main".equals(stackTraceElement.getMethodName())) {
+                  return Class.forName(stackTraceElement.getClassName());
+              }
+          }
+      }
+      catch (ClassNotFoundException ex) {
+          // Swallow and continue
+      }
+      return null;
+  }
   ```
 
   
