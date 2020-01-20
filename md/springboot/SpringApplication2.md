@@ -7,7 +7,7 @@
       // 4.1 创建StopWatch对象
       StopWatch stopWatch = new StopWatch();
       stopWatch.start();
-      // 4.2 创建空的IOC容器，和一组异常报告器
+      // 4.2 创建空的IOC容器，和一组异常报告器(空集合)
       ConfigurableApplicationContext context = null;
       Collection<SpringBootExceptionReporter> exceptionReporters = new ArrayList<>();
       // 4.3 配置与awt相关的信息
@@ -22,7 +22,21 @@
           // 4.5 准备运行时环境
           ConfigurableEnvironment environment = prepareEnvironment(listeners, applicationArguments);
           //.............
-      }
+      try {
+          // 4.6 如果有配置 spring.beaninfo.ignore，则将该配置设置进系统参数
+          configureIgnoreBeanInfo(environment);
+          // 4.7 打印SpringBoot的banner
+          Banner printedBanner = printBanner(environment);
+          // 4.8 创建ApplicationContext
+          context = createApplicationContext();
+          // 初始化异常报告器
+          exceptionReporters = getSpringFactoriesInstances(SpringBootExceptionReporter.class,
+                  new Class[] { ConfigurableApplicationContext.class }, context);
+          // 4.9 初始化IOC容器
+          prepareContext(context, environment, listeners, applicationArguments, printedBanner);
+          // ...
+  	}
+  }
   ```
 
   ---
@@ -198,4 +212,279 @@
   }
   ```
 
+  ---
   
+- 4.6 configureIgnoreBeanInfo：设置系统参数
+
+  ```java
+  public static final String IGNORE_BEANINFO_PROPERTY_NAME = "spring.beaninfo.ignore";
+  
+  private void configureIgnoreBeanInfo(ConfigurableEnvironment environment) {
+      if (System.getProperty(CachedIntrospectionResults.IGNORE_BEANINFO_PROPERTY_NAME) == null) {
+          Boolean ignore = environment.getProperty("spring.beaninfo.ignore", Boolean.class, Boolean.TRUE);
+          System.setProperty(CachedIntrospectionResults.IGNORE_BEANINFO_PROPERTY_NAME, ignore.toString());
+      }
+  }
+  ```
+
+  > "spring.beaninfo.ignore", with a value of "true" skipping the search for BeanInfo classes (typically for scenarios where no such classes are being defined for beans in the application in the first place).
+  >
+  > "spring.beaninfo.ignore"` 的值为“true”，则跳过对BeanInfo类的搜索（通常用于未定义此类的情况）首先是应用中的bean）。
+
+---
+
+- 4.7 printBanner：打印Banner
+
+  主要是打印springboot应用启动时的banner图案,不重要,略过
+
+---
+
+- 4.8 createApplicationContext：创建IOC容器
+
+  ```java
+  //默认上下文 AnnotationConfigApplicationContext
+  public static final String DEFAULT_CONTEXT_CLASS = "org.springframework.context."
+          + "annotation.AnnotationConfigApplicationContext";
+  //默认servlet上下文 AnnotationConfigServletWebServerApplicationContext
+  public static final String DEFAULT_SERVLET_WEB_CONTEXT_CLASS = "org.springframework.boot."
+          + "web.servlet.context.AnnotationConfigServletWebServerApplicationContext";
+  //默认响应式上下文 AnnotationConfigReactiveWebServerApplicationContext
+  public static final String DEFAULT_REACTIVE_WEB_CONTEXT_CLASS = "org.springframework."
+          + "boot.web.reactive.context.AnnotationConfigReactiveWebServerApplicationContext";
+  
+  protected ConfigurableApplicationContext createApplicationContext() {
+      Class<?> contextClass = this.applicationContextClass;
+      if (contextClass == null) {
+          try {
+              // 根据Web应用类型决定实例化哪个IOC容器
+              switch (this.webApplicationType) {
+                  case SERVLET:
+                      contextClass = Class.forName(DEFAULT_SERVLET_WEB_CONTEXT_CLASS);
+                      break;
+                  case REACTIVE:
+                      contextClass = Class.forName(DEFAULT_REACTIVE_WEB_CONTEXT_CLASS);
+                      break;
+                  default:
+                      contextClass = Class.forName(DEFAULT_CONTEXT_CLASS);
+              }
+          }
+          catch (ClassNotFoundException ex) {
+              throw new IllegalStateException(
+                      "Unable create a default ApplicationContext, " + "please specify an ApplicationContextClass",
+                      ex);
+          }
+      }
+      //反射创建上下文对象
+      return (ConfigurableApplicationContext) BeanUtils.instantiateClass(contextClass);
+  }
+  ```
+
+  ```java
+  //从Context的构造方法可以看到,BeanFactory已经创建完成
+  public GenericApplicationContext() {
+      this.beanFactory = new DefaultListableBeanFactory();
+  }
+  ```
+
+  > ​	每一种类型对应一种环境和一个上下文
+  >
+  > - Servlet - `StandardServletEnvironment` - `AnnotationConfigServletWebServerApplicationContext`
+  > - Reactive - `StandardReactiveWebEnvironment` - `AnnotationConfigReactiveWebServerApplicationContext`
+  > - None - `StandardEnvironment` - `AnnotationConfigApplicationContext`
+
+---
+
+- 4.9 prepareContext：初始化IOC容器
+
+  ```java
+  //根据环境中的属性键值对,准备上下文
+  private void prepareContext(ConfigurableApplicationContext context, ConfigurableEnvironment environment,
+          SpringApplicationRunListeners listeners, ApplicationArguments applicationArguments, Banner printedBanner) {
+      // 将创建好的应用环境设置到IOC容器中
+      context.setEnvironment(environment);
+      // 4.9.1 IOC容器的后置处理
+      postProcessApplicationContext(context);
+      // 4.9.2 执行Initializer
+      applyInitializers(context);
+      // 【回调】SpringApplicationRunListeners的contextPrepared方法（在创建和准备ApplicationContext之后，但在加载之前）
+      listeners.contextPrepared(context);
+      if (this.logStartupInfo) {
+          logStartupInfo(context.getParent() == null);
+          logStartupProfileInfo(context);
+      }
+      // Add boot specific singleton beans
+      ConfigurableListableBeanFactory beanFactory = context.getBeanFactory();
+      // 创建两个组件：在控制台打印Banner的，之前把main方法中参数封装成对象的组件
+      beanFactory.registerSingleton("springApplicationArguments", applicationArguments);
+      if (printedBanner != null) {
+          beanFactory.registerSingleton("springBootBanner", printedBanner);
+      }
+      if (beanFactory instanceof DefaultListableBeanFactory) {
+          ((DefaultListableBeanFactory) beanFactory)
+                  .setAllowBeanDefinitionOverriding(this.allowBeanDefinitionOverriding);
+      }
+      // Load the sources
+      // 4.9.3 加载主启动类
+      Set<Object> sources = getAllSources();
+      Assert.notEmpty(sources, "Sources must not be empty");
+      // 4.9.4 注册主启动类
+      load(context, sources.toArray(new Object[0]));
+      // 【回调】SpringApplicationRunListeners的contextLoaded方法（ApplicationContext已加载但在刷新之前）
+      listeners.contextLoaded(context);
+  }	
+  ```
+
+  - 4.9.1 postProcessApplicationContext：IOC容器的后置处理
+
+    ```java
+    // 留意一下这个名，后面Debug的时候会看到
+    // 给bean赋一个默认的id?
+    public static final String CONFIGURATION_BEAN_NAME_GENERATOR =
+    			"org.springframework.context.annotation.internalConfigurationBeanNameGenerator";
+    
+    protected void postProcessApplicationContext(ConfigurableApplicationContext context) {
+        // 注册BeanName生成器
+        if (this.beanNameGenerator != null) {
+            context.getBeanFactory().registerSingleton(AnnotationConfigUtils.CONFIGURATION_BEAN_NAME_GENERATOR,
+                    this.beanNameGenerator);
+        }
+        // 设置资源加载器和类加载器
+        if (this.resourceLoader != null) {
+            if (context instanceof GenericApplicationContext) {
+                ((GenericApplicationContext) context).setResourceLoader(this.resourceLoader);
+            }
+            if (context instanceof DefaultResourceLoader) {
+                ((DefaultResourceLoader) context).setClassLoader(this.resourceLoader.getClassLoader());
+            }
+        }
+        // 设置类型转换器
+        if (this.addConversionService) {
+    											    context.getBeanFactory().setConversionService(ApplicationConversionService.getSharedInstance());
+        }
+    }
+    ```
+
+    > - 如果 `beanNameGenerator` 不为空，则把它注册到IOC容器中。 `BeanNameGenerator` 是Bean的name生成器，指定的 `CONFIGURATION_BEAN_NAME_GENERATOR` 在修改首字母大写后无法从IDEA索引到，暂且放置一边。
+    > - `ResourceLoader` 和 `ClassLoader`，这些都在前面准备好了
+    > - `ConversionService`，用于类型转换的工具，前面也准备好了，并且还做了容器共享
+
+  - 4.9.2 applyInitializers：执行Initializer
+
+    ```java
+    //创建 SpringApplication 时准备的那些 ApplicationContextInitializer
+    protected void applyInitializers(ConfigurableApplicationContext context) {
+        for (ApplicationContextInitializer initializer : getInitializers()) {
+            Class<?> requiredType = GenericTypeResolver.resolveTypeArgument(initializer.getClass(),
+                    ApplicationContextInitializer.class);
+            Assert.isInstanceOf(requiredType, context, "Unable to call initializer.");
+            initializer.initialize(context);
+        }
+    }
+    ```
+
+  - 4.9.3 getAllSources
+
+    ```java
+     	// prepareContext 的最后几行：
+    	// Load the sources
+        // 4.9.3 加载主启动类
+        Set<Object> sources = getAllSources();
+        Assert.notEmpty(sources, "Sources must not be empty");
+        // 4.9.4 注册主启动类
+        load(context, sources.toArray(new Object[0]));
+    
+    /************************************************************/
+    
+    private Set<Class<?>> primarySources;
+    private Set<String> sources = new LinkedHashSet<>();
+    
+    //getAllSources 实际上是把主启动类加载进来了
+    public Set<Object> getAllSources() {
+        Set<Object> allSources = new LinkedHashSet<>();
+        //primarySources不为空,就全部放入set中
+        //primarySources 已经被设置过了，就是主启动类
+        if (!CollectionUtils.isEmpty(this.primarySources)) {
+            allSources.addAll(this.primarySources);
+        }
+        //本地的source不为空,也全部放入set中
+        //debug为空
+        if (!CollectionUtils.isEmpty(this.sources)) {
+            allSources.addAll(this.sources);
+        }
+        //不允许增删source?
+        return Collections.unmodifiableSet(allSources);
+    }
+    ```
+
+  - 4.9.4 【复杂】load
+
+    ```java
+    protected void load(ApplicationContext context, Object[] sources) {
+        // 打日志,忽略
+        if (logger.isDebugEnabled()) {
+            logger.debug("Loading source " + StringUtils.arrayToCommaDelimitedString(sources));
+        }
+        // 类定义加载器(找到所有的需要加载的类,并加载为BeanDefinition对象)
+        BeanDefinitionLoader loader = createBeanDefinitionLoader(getBeanDefinitionRegistry(context), sources);
+        // 设置BeanName生成器，通过Debug发现此时它还没有被注册
+        if (this.beanNameGenerator != null) {
+            loader.setBeanNameGenerator(this.beanNameGenerator);
+        }
+        // 设置资源加载器
+        if (this.resourceLoader != null) {
+            loader.setResourceLoader(this.resourceLoader);
+        }
+        // 设置运行环境
+        if (this.environment != null) {
+            loader.setEnvironment(this.environment);
+        }
+        loader.load();
+    }
+    ```
+
+    - 4.9.4.1 getBeanDefinitionRegistry
+
+      ```java
+      private BeanDefinitionRegistry getBeanDefinitionRegistry(ApplicationContext context) {
+          if (context instanceof BeanDefinitionRegistry) {
+              return (BeanDefinitionRegistry) context;
+          }
+          //根据context获取,BeanDefinitionRegistry的实现由BeanFactory还是ApplicationContext真正实现
+          if (context instanceof AbstractApplicationContext) {
+              return (BeanDefinitionRegistry) ((AbstractApplicationContext) context).getBeanFactory();
+          }
+          throw new IllegalStateException("Could not locate BeanDefinitionRegistry");
+      }
+      
+      public class AnnotationConfigServletWebServerApplicationContext extends ServletWebServerApplicationContext
+      		implements AnnotationConfigRegistry
+      public class ServletWebServerApplicationContext extends GenericWebApplicationContext
+      		implements ConfigurableWebServerApplicationContext
+      public class GenericWebApplicationContext extends GenericApplicationContext
+      		implements ConfigurableWebApplicationContext, ThemeSource
+      public class GenericApplicationContext extends AbstractApplicationContext implements BeanDefinitionRegistry
+      ```
+
+    - 4.9.4.2 createBeanDefinitionLoader
+
+      ```java
+      protected BeanDefinitionLoader createBeanDefinitionLoader(BeanDefinitionRegistry registry, Object[] sources) {
+          return new BeanDefinitionLoader(registry, sources);
+      }
+      
+      BeanDefinitionLoader(BeanDefinitionRegistry registry, Object... sources) {
+          Assert.notNull(registry, "Registry must not be null");
+          Assert.notEmpty(sources, "Sources must not be empty");
+          this.sources = sources;
+          // 注册BeanDefinition解析器
+          this.annotatedReader = new AnnotatedBeanDefinitionReader(registry);
+          this.xmlReader = new XmlBeanDefinitionReader(registry);
+          if (isGroovyPresent()) {
+              this.groovyReader = new GroovyBeanDefinitionReader(registry);
+          }
+          this.scanner = new ClassPathBeanDefinitionScanner(registry);
+          this.scanner.addExcludeFilter(new ClassExcludeFilter(sources));
+      }
+      ```
+
+      
