@@ -472,19 +472,217 @@
           return new BeanDefinitionLoader(registry, sources);
       }
       
+      //BeanDefinitionLoader构造方法
       BeanDefinitionLoader(BeanDefinitionRegistry registry, Object... sources) {
+          //registry就是applicationContext上下文
           Assert.notNull(registry, "Registry must not be null");
           Assert.notEmpty(sources, "Sources must not be empty");
           this.sources = sources;
-          // 注册BeanDefinition解析器
+          // 注册BeanDefinition解析器,分别从注解和xml中读取类定义
           this.annotatedReader = new AnnotatedBeanDefinitionReader(registry);
           this.xmlReader = new XmlBeanDefinitionReader(registry);
+          //如果由Groovy类存在,注册Groovy类定义解析器
           if (isGroovyPresent()) {
               this.groovyReader = new GroovyBeanDefinitionReader(registry);
           }
-          this.scanner = new ClassPathBeanDefinitionScanner(registry);
+          //增加类扫描配置,忽略source来源类
+    this.scanner = new ClassPathBeanDefinitionScanner(registry);
           this.scanner.addExcludeFilter(new ClassExcludeFilter(sources));
       }
       ```
-
       
+      > 几个关键的组件：`AnnotatedBeanDefinitionReader`（注解驱动的Bean定义解析器）、`XmlBeanDefinitionReader`（Xml定义的Bean定义解析器）、`ClassPathBeanDefinitionScanner`（类路径下的Bean定义扫描器），还有一个我们不用的 `GroovyBeanDefinitionReader`（它需要经过isGroovyPresent方法，而这个方法需要判断classpath下是否有 `groovy.lang.MetaClass` 类）。
+      
+      - 4.9.4.3 load
+      
+        ```java
+        public int load() {
+            int count = 0;
+            //其实就是标注了@SpringbootApplication的主启动类
+            for (Object source : this.sources) {
+                count += load(source);
+            }
+            return count;
+        }
+        //拿到所有的 sources（其实就主启动类一个），继续调用重载的load方法
+        private int load(Object source) {
+            Assert.notNull(source, "Source must not be null");
+            // 根据传入source的类型，决定如何解析
+            // 主启动类是class类型!
+            if (source instanceof Class<?>) {
+                return load((Class<?>) source);
+            }
+            if (source instanceof Resource) {
+                return load((Resource) source);
+            }
+            if (source instanceof Package) {
+                return load((Package) source);
+            }
+            if (source instanceof CharSequence) {
+                return load((CharSequence) source);
+            }
+            throw new IllegalArgumentException("Invalid source type " + source.getClass());
+        }
+        
+        // 根据传入的 source 的类型，来决定用哪种方式加载。主启动类属于 Class 类型，于是继续调用重载的方法
+        private int load(Class<?> source) {
+            //Groovty相关
+            if (isGroovyPresent() && GroovyBeanDefinitionSource.class.isAssignableFrom(source)) {
+                // Any GroovyLoaders added in beans{} DSL can contribute beans here
+                GroovyBeanDefinitionSource loader = BeanUtils.instantiateClass(source, GroovyBeanDefinitionSource.class);
+                load(loader);
+            }
+            // 如果它是一个Component，则用注解解析器来解析它
+            if (isComponent(source)) {
+                this.annotatedReader.register(source);
+                return 1;
+            }
+            return 0;
+        }
+        ```
+      
+        - 4.9.4.4 annotatedReader.register
+      
+          ```java
+          public void registerBean(Class<?> beanClass) {
+              doRegisterBean(beanClass, null, null, null);
+          }
+          ```
+      
+        - 4.9.4.5 doRegisterBean
+      
+          ```java
+          <T> void doRegisterBean(Class<T> beanClass, @Nullable Supplier<T> instanceSupplier, @Nullable String name,
+                  @Nullable Class<? extends Annotation>[] qualifiers, BeanDefinitionCustomizer... definitionCustomizers) {
+          
+              // 包装为BeanDefinition
+              AnnotatedGenericBeanDefinition abd = new AnnotatedGenericBeanDefinition(beanClass);
+              // 条件判断器(盲猜与@Condition注解有关)
+              // 如果认为不该存在,则跳过
+              if (this.conditionEvaluator.shouldSkip(abd.getMetadata())) {
+                  return;
+              }
+          
+              abd.setInstanceSupplier(instanceSupplier);
+              // 解析Scope信息，决定作用域
+              // ProtoType/singleton 默认单例模式
+              ScopeMetadata scopeMetadata = this.scopeMetadataResolver.resolveScopeMetadata(abd);
+              abd.setScope(scopeMetadata.getScopeName());
+              // 生成Bean的名称
+              String beanName = (name != null ? name : this.beanNameGenerator.generateBeanName(abd, this.registry));
+          
+              // 解析BeanDefinition的注解
+              AnnotationConfigUtils.processCommonDefinitionAnnotations(abd);
+              //判断是立即加载还是懒加载
+              if (qualifiers != null) {
+                  for (Class<? extends Annotation> qualifier : qualifiers) {
+                      if (Primary.class == qualifier) {
+                          abd.setPrimary(true);
+                      }
+                      else if (Lazy.class == qualifier) {
+                          abd.setLazyInit(true);
+                      }
+                      else {
+                          abd.addQualifier(new AutowireCandidateQualifier(qualifier));
+                      }
+                  }
+              }
+              // 使用定制器修改这个BeanDefinition
+              for (BeanDefinitionCustomizer customizer : definitionCustomizers) {
+                  customizer.customize(abd);
+              }
+          
+              // 使用BeanDefinitionHolder，将BeanDefinition注册到IOC容器中
+              // beanName 和 beanDefinition的键值对?
+              BeanDefinitionHolder definitionHolder = new BeanDefinitionHolder(abd, beanName);
+              // 实施作用域代理规则?配置属性
+              definitionHolder = AnnotationConfigUtils.applyScopedProxyMode(scopeMetadata, definitionHolder, this.registry);
+              // 将BeanDefinition 绑定到BeanDefinitionRegistry 
+            BeanDefinitionReaderUtils.registerBeanDefinition(definitionHolder, this.registry);
+          }
+          ```
+      
+          其中 AnnotationConfigUtils.processCommonDefinitionAnnotations 的实现：
+      
+          ```java
+          // 处理通用类定义注解
+          public static void processCommonDefinitionAnnotations(AnnotatedBeanDefinition abd) {
+              // 根据通用类定义的元数据(注解?)
+              processCommonDefinitionAnnotations(abd, abd.getMetadata());
+          }
+          
+          static void processCommonDefinitionAnnotations(AnnotatedBeanDefinition abd, AnnotatedTypeMetadata metadata) {
+              // 解析@Lazy
+              AnnotationAttributes lazy = attributesFor(metadata, Lazy.class);
+              if (lazy != null) {
+                  abd.setLazyInit(lazy.getBoolean("value"));
+              }
+              else if (abd.getMetadata() != metadata) {
+                  lazy = attributesFor(abd.getMetadata(), Lazy.class);
+                  if (lazy != null) {
+                      abd.setLazyInit(lazy.getBoolean("value"));
+                  }
+              }
+          
+              // 解析@Primary
+              if (metadata.isAnnotated(Primary.class.getName())) {
+                  abd.setPrimary(true);
+              }
+              // 解析@DependsOn
+              AnnotationAttributes dependsOn = attributesFor(metadata, DependsOn.class);
+              if (dependsOn != null) {
+                  abd.setDependsOn(dependsOn.getStringArray("value"));
+              }
+          
+              // 解析@Role
+              AnnotationAttributes role = attributesFor(metadata, Role.class);
+              if (role != null) {
+                  abd.setRole(role.getNumber("value").intValue());
+              }
+              // 解析@Description
+              AnnotationAttributes description = attributesFor(metadata, Description.class);
+              if (description != null) {
+                  abd.setDescription(description.getString("value"));
+              }
+          }
+          ```
+      
+        - 4.9.4.6 BeanDefinitionReaderUtils.registerBeanDefinition
+      
+          ```java
+          public static void registerBeanDefinition(
+                  BeanDefinitionHolder definitionHolder, BeanDefinitionRegistry registry)
+                  throws BeanDefinitionStoreException {
+          
+              // Register bean definition under primary name.
+              String beanName = definitionHolder.getBeanName();
+              registry.registerBeanDefinition(beanName, definitionHolder.getBeanDefinition());
+          
+              // Register aliases for bean name, if any.
+              // 通过别名也可以找到类定义(根据别名找id)
+             	// key:alias value:beanName(id)
+              String[] aliases = definitionHolder.getAliases();
+              if (aliases != null) {
+                  for (String alias : aliases) {
+                      registry.registerAlias(beanName, alias);
+                  }
+              }
+          }
+          ```
+    
+  - 4.9.5 【重要】BeanDefinition
+  
+    > A BeanDefinition describes a bean instance, which has property values, constructor argument values, and further information supplied by concrete implementations. This is just a minimal interface: The main intention is to allow a BeanFactoryPostProcessor such as PropertyPlaceholderConfigurer to introspect and modify property values and other bean metadata.
+    >
+    > <font color="red">`BeanDefinition`</font> 描述了一个bean实例，该实例具有属性值，构造函数参数值以及具体实现所提供的更多信息。
+    >
+    > 这只是一个最小的接口：主要目的是允许 <font color="red">`BeanFactoryPostProcessor`</font> （例如 <font color="red">`PropertyPlaceholderConfigurer`</font> ）内省和修改属性值和其他bean元数据。
+    
+    从文档注释中可以看出，它是描述Bean的实例的一个定义信息，但它不是真正的Bean。这个接口还定义了很多方法：
+    
+    - `String getBeanClassName();`
+    - `String getScope();`
+    - `String[] getDependsOn();`
+    - `String getInitMethodName();`
+    - `boolean isSingleton();`
+    - .....
