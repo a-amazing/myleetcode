@@ -1797,3 +1797,760 @@ lite：有 @Component 、@ComponentScan 、@Import 、@ImportResource 标注的�
     }
 ```
 
+5.2.3 解析配置类 与 包扫描的触发时机
+
+```java
+    do {
+        // 5.2.3 解析配置类
+        parser.parse(candidates);
+        parser.validate();
+
+        // ......
+        
+       
+public void parse(Set<BeanDefinitionHolder> configCandidates) {
+    //遍历每一个BeanDefinition
+    for (BeanDefinitionHolder holder : configCandidates) {
+        BeanDefinition bd = holder.getBeanDefinition();
+        try {
+            //根据定义的来源不同,注解定义
+            if (bd instanceof AnnotatedBeanDefinition) {
+                parse(((AnnotatedBeanDefinition) bd).getMetadata(), holder.getBeanName());
+            }
+            //抽象类定义?
+            else if (bd instanceof AbstractBeanDefinition && ((AbstractBeanDefinition) bd).hasBeanClass()) {
+                parse(((AbstractBeanDefinition) bd).getBeanClass(), holder.getBeanName());
+            }
+            else {
+                parse(bd.getBeanClassName(), holder.getBeanName());
+            }
+        }
+        // catch ......
+    }
+
+    this.deferredImportSelectorHandler.process();
+}
+        
+//遍历每一个 BeanDefinition，并根据类型来决定如何解析。SpringBoot 通常使用注解配置
+protected final void parse(AnnotationMetadata metadata, String beanName) throws IOException {
+    //处理配置类
+    processConfigurationClass(new ConfigurationClass(metadata, beanName));
+}
+
+protected void processConfigurationClass(ConfigurationClass configClass) throws IOException {
+    //解析配置类,首先判断是否需要跳过该配置类
+    if (this.conditionEvaluator.shouldSkip(configClass.getMetadata(), ConfigurationPhase.PARSE_CONFIGURATION)) {
+        return;
+    }
+
+    ConfigurationClass existingClass = this.configurationClasses.get(configClass);
+    //如果已经存在并引入,合并
+    if (existingClass != null) {
+        if (configClass.isImported()) {
+            if (existingClass.isImported()) {
+                existingClass.mergeImportedBy(configClass);
+            }
+            // Otherwise ignore new imported config class; existing non-imported class overrides it.
+            return;
+        }
+        //还未引入 isImported return false!
+        else {
+            // Explicit bean definition found, probably replacing an import.
+            // Let's remove the old one and go with the new one.
+            this.configurationClasses.remove(configClass);
+            this.knownSuperclasses.values().removeIf(configClass::equals);
+        }
+    }
+
+    // Recursively process the configuration class and its superclass hierarchy.
+    SourceClass sourceClass = asSourceClass(configClass);
+    do {
+        sourceClass = doProcessConfigurationClass(configClass, sourceClass);
+    }
+    while (sourceClass != null);
+
+    this.configurationClasses.put(configClass, configClass);
+}
+```
+
+继续跟随源码,进入doProcessConfigurationClass方法
+
+```java
+/**
+* 它来解析 @PropertySource 、@ComponentScan 、@Import 、@ImportResource 、@Bean 等  * 注解，并整理成一个 ConfigClass 。
+*/
+//传入配置类和它的顶层父类
+protected final SourceClass doProcessConfigurationClass(ConfigurationClass configClass, SourceClass sourceClass)
+        throws IOException {
+
+    //如果是@Component注解
+    if (configClass.getMetadata().isAnnotated(Component.class.getName())) {
+        // Recursively process any member (nested) classes first
+        // 递归处理成员类
+        processMemberClasses(configClass, sourceClass);
+    }
+
+    // Process any @PropertySource annotations
+    // @PropertySource注解
+    for (AnnotationAttributes propertySource : AnnotationConfigUtils.attributesForRepeatable(
+            sourceClass.getMetadata(), PropertySources.class,
+            org.springframework.context.annotation.PropertySource.class)) {
+        if (this.environment instanceof ConfigurableEnvironment) {
+            processPropertySource(propertySource);
+        }
+        // ......
+    }
+
+    // Process any @ComponentScan annotations
+    // 注解@ComponentScan注解(根据猜测,获取注解中的value,如果是默认值,则取当前类为根目录,进行包扫描)
+    Set<AnnotationAttributes> componentScans = AnnotationConfigUtils.attributesForRepeatable(
+            sourceClass.getMetadata(), ComponentScans.class, ComponentScan.class);
+    // 如果@ComponentScan不是空的且不需要跳过,则递归的获取
+    if (!componentScans.isEmpty() &&
+            !this.conditionEvaluator.shouldSkip(sourceClass.getMetadata(), ConfigurationPhase.REGISTER_BEAN)) {
+        for (AnnotationAttributes componentScan : componentScans) {
+            // The config class is annotated with @ComponentScan -> perform the scan immediately
+            // ......
+        }
+    }
+
+    // Process any @Import annotations
+    processImports(configClass, sourceClass, getImports(sourceClass), true);
+
+    // Process any @ImportResource annotations
+    AnnotationAttributes importResource =
+            AnnotationConfigUtils.attributesFor(sourceClass.getMetadata(), ImportResource.class);
+    if (importResource != null) {
+        // ......
+    }
+
+    // Process individual @Bean methods
+    // 获取锁有带@Bean注解的类方法,添加进configClass
+    Set<MethodMetadata> beanMethods = retrieveBeanMethodMetadata(sourceClass);
+    for (MethodMetadata methodMetadata : beanMethods) {
+        configClass.addBeanMethod(new BeanMethod(methodMetadata, configClass));
+    }
+
+    // Process default methods on interfaces
+    processInterfaces(configClass, sourceClass);
+
+    // Process superclass, if any
+    if (sourceClass.getMetadata().hasSuperClass()) {
+        String superclass = sourceClass.getMetadata().getSuperClassName();
+        if (superclass != null && !superclass.startsWith("java") &&
+                !this.knownSuperclasses.containsKey(superclass)) {
+            this.knownSuperclasses.put(superclass, configClass);
+            // Superclass found, return its annotation metadata and recurse
+            return sourceClass.getSuperClass();
+        }
+    }
+
+    // No superclass -> processing is complete
+    return null;
+}
+```
+
+5.2.3.1 解析 @ComponentScan
+
+```java
+    // Process any @ComponentScan annotations
+    Set<AnnotationAttributes> componentScans = AnnotationConfigUtils.attributesForRepeatable(
+            sourceClass.getMetadata(), ComponentScans.class, ComponentScan.class);
+    if (!componentScans.isEmpty() &&
+            !this.conditionEvaluator.shouldSkip(sourceClass.getMetadata(), ConfigurationPhase.REGISTER_BEAN)) {
+        for (AnnotationAttributes componentScan : componentScans) {
+            // The config class is annotated with @ComponentScan -> perform the scan immediately
+            // 立即进行包扫描
+            Set<BeanDefinitionHolder> scannedBeanDefinitions =
+                    this.componentScanParser.parse(componentScan, sourceClass.getMetadata().getClassName());
+            // Check the set of scanned definitions for any further config classes and parse recursively if needed
+            for (BeanDefinitionHolder holder : scannedBeanDefinitions) {
+                BeanDefinition bdCand = holder.getBeanDefinition().getOriginatingBeanDefinition();
+                if (bdCand == null) {
+                    bdCand = holder.getBeanDefinition();
+                }
+                if (ConfigurationClassUtils.checkConfigurationClassCandidate(bdCand, this.metadataReaderFactory)) {
+                    parse(bdCand.getBeanClassName(), holder.getBeanName());
+                }
+            }
+        }
+    }
+```
+
+5.2.3.2 ComponentScanAnnotationParser.parse
+
+```java
+public Set<BeanDefinitionHolder> parse(AnnotationAttributes componentScan, final String declaringClass) {
+    ClassPathBeanDefinitionScanner scanner = new ClassPathBeanDefinitionScanner(this.registry,
+            componentScan.getBoolean("useDefaultFilters"), this.environment, this.resourceLoader);
+
+    // ......
+    return scanner.doScan(StringUtils.toStringArray(basePackages));
+}
+```
+
+先看一眼最后的return：doScan 方法！原来包扫描的触发时机在这里：执行 ConfigurationClassPostProcessor 的 postProcessBeanDefinitionRegistry 方法，解析 @ComponentScan 时触发。
+
+5.2.3.3 new ClassPathBeanDefinitionScanner
+
+```java
+//这边使用AnnotationBeanNameGenerator
+private BeanNameGenerator beanNameGenerator = new AnnotationBeanNameGenerator();
+private ScopeMetadataResolver scopeMetadataResolver = new AnnotationScopeMetadataResolver();
+
+public ClassPathBeanDefinitionScanner(BeanDefinitionRegistry registry, boolean useDefaultFilters,
+        Environment environment, @Nullable ResourceLoader resourceLoader) {
+
+    Assert.notNull(registry, "BeanDefinitionRegistry must not be null");
+    this.registry = registry;
+
+    if (useDefaultFilters) {
+        registerDefaultFilters();
+    }
+    setEnvironment(environment);
+    setResourceLoader(resourceLoader);
+}
+```
+
+5.2.3.4 【扩展】AnnotationBeanNameGenerator 的Bean名称生成规则
+
+```java
+public class AnnotationBeanNameGenerator implements BeanNameGenerator {
+
+	private static final String COMPONENT_ANNOTATION_CLASSNAME = "org.springframework.stereotype.Component";
+
+	//重写了获取BeanName的方法
+    //先执行下面的 determineBeanNameFromAnnotation 方法，看这些模式注解上是否有显式的声明 value 属性，如果没有，则进入下面的 buildDefaultBeanName 方法，它会取类名的全称，之后调 Introspector.decapitalize 方法将首字母转为小写。
+	@Override
+	public String generateBeanName(BeanDefinition definition, BeanDefinitionRegistry registry) {
+		if (definition instanceof AnnotatedBeanDefinition) {
+			String beanName = determineBeanNameFromAnnotation((AnnotatedBeanDefinition) definition);
+			if (StringUtils.hasText(beanName)) {
+				// Explicit bean name found.
+				return beanName;
+			}
+		}
+		// Fallback: generate a unique default bean name.
+		return buildDefaultBeanName(definition, registry);
+	}
+
+    //从注解中获取value值作为默认的beanName
+	@Nullable
+	protected String determineBeanNameFromAnnotation(AnnotatedBeanDefinition annotatedDef) {
+		AnnotationMetadata amd = annotatedDef.getMetadata();
+		Set<String> types = amd.getAnnotationTypes();
+		String beanName = null;
+		for (String type : types) {
+			AnnotationAttributes attributes = AnnotationConfigUtils.attributesFor(amd, type);
+			if (attributes != null && isStereotypeWithNameValue(type, amd.getMetaAnnotationTypes(type), attributes)) {
+				Object value = attributes.get("value");
+				if (value instanceof String) {
+					String strVal = (String) value;
+					if (StringUtils.hasLength(strVal)) {
+						if (beanName != null && !strVal.equals(beanName)) {
+							throw new IllegalStateException("Stereotype annotations suggest inconsistent " +
+									"component names: '" + beanName + "' versus '" + strVal + "'");
+						}
+						beanName = strVal;
+					}
+				}
+			}
+		}
+		return beanName;
+	}
+
+	protected boolean isStereotypeWithNameValue(String annotationType,
+			Set<String> metaAnnotationTypes, @Nullable Map<String, Object> attributes) {
+
+		boolean isStereotype = annotationType.equals(COMPONENT_ANNOTATION_CLASSNAME) ||
+				metaAnnotationTypes.contains(COMPONENT_ANNOTATION_CLASSNAME) ||
+				annotationType.equals("javax.annotation.ManagedBean") ||
+				annotationType.equals("javax.inject.Named");
+
+		return (isStereotype && attributes != null && attributes.containsKey("value"));
+	}
+
+    //获取默认名称的方法
+	protected String buildDefaultBeanName(BeanDefinition definition, BeanDefinitionRegistry registry) {
+		return buildDefaultBeanName(definition);
+	}
+
+	protected String buildDefaultBeanName(BeanDefinition definition) {
+		String beanClassName = definition.getBeanClassName();
+		Assert.state(beanClassName != null, "No bean class name set");
+		String shortClassName = ClassUtils.getShortName(beanClassName);
+		return Introspector.decapitalize(shortClassName);
+	}
+
+}
+
+    public static String decapitalize(String name) {
+        if (name == null || name.length() == 0) {
+            return name;
+        }
+        if (name.length() > 1 && Character.isUpperCase(name.charAt(1)) &&
+                        Character.isUpperCase(name.charAt(0))){
+            return name;
+        }
+        char chars[] = name.toCharArray();
+        chars[0] = Character.toLowerCase(chars[0]);
+        return new String(chars);
+    }
+```
+
+5.2.4 loadBeanDefinitions：解析配置类中的内容
+
+```java
+public void loadBeanDefinitions(Set<ConfigurationClass> configurationModel) {
+    TrackedConditionEvaluator trackedConditionEvaluator = new TrackedConditionEvaluator();
+    //遍历配置类,并加载内部类定义
+    for (ConfigurationClass configClass : configurationModel) {
+        loadBeanDefinitionsForConfigurationClass(configClass, trackedConditionEvaluator);
+    }
+}
+```
+
+```java
+private void loadBeanDefinitionsForConfigurationClass(
+        ConfigurationClass configClass, TrackedConditionEvaluator trackedConditionEvaluator) {
+	//如果是需要跳过的,在registry中移除该k-v
+    if (trackedConditionEvaluator.shouldSkip(configClass)) {
+        String beanName = configClass.getBeanName();
+        if (StringUtils.hasLength(beanName) && this.registry.containsBeanDefinition(beanName)) {
+            this.registry.removeBeanDefinition(beanName);
+        }
+        this.importRegistry.removeImportingClass(configClass.getMetadata().getClassName());
+        return;
+    }
+	
+    //如果已经被引入了
+    if (configClass.isImported()) {
+        registerBeanDefinitionForImportedConfigurationClass(configClass);
+    }
+    for (BeanMethod beanMethod : configClass.getBeanMethods()) {
+        //遍历bean定义,并加载由@Bean注解标记的方法
+        loadBeanDefinitionsForBeanMethod(beanMethod);
+    }
+
+    loadBeanDefinitionsFromImportedResources(configClass.getImportedResources());
+    loadBeanDefinitionsFromRegistrars(configClass.getImportBeanDefinitionRegistrars());
+}
+```
+
+以 读取 @Bean 注解标注的方法为例，看一眼它对Bean的解析和加载：（方法很长，关键注释已标注在源码中）
+
+```java
+private void loadBeanDefinitionsForBeanMethod(BeanMethod beanMethod) {
+    ConfigurationClass configClass = beanMethod.getConfigurationClass();
+    MethodMetadata metadata = beanMethod.getMetadata();
+    String methodName = metadata.getMethodName();
+
+    // Do we need to mark the bean as skipped by its condition?
+    // 判断该Bean是否要被跳过
+    if (this.conditionEvaluator.shouldSkip(metadata, ConfigurationPhase.REGISTER_BEAN)) {
+        //有一个集合专门存放需要跳过的类定义方法名
+        configClass.skippedBeanMethods.add(methodName);
+        return;
+    }
+    // 如果已经处理为需要跳过的方法
+    if (configClass.skippedBeanMethods.contains(methodName)) {
+        return;
+    }
+
+    // 校验是否标注了@Bean注解
+    AnnotationAttributes bean = AnnotationConfigUtils.attributesFor(metadata, Bean.class);
+    Assert.state(bean != null, "No @Bean annotation attributes");
+
+    // Consider name and any aliases
+     // Bean的名称处理规则：如果Bean中标注了name，取第一个；没有标注，取方法名
+    List<String> names = new ArrayList<>(Arrays.asList(bean.getStringArray("name")));
+    String beanName = (!names.isEmpty() ? names.remove(0) : methodName);
+
+    // Register aliases even when overridden
+    // 其余声明的name被视为Bean的别名
+    for (String alias : names) {
+        this.registry.registerAlias(beanName, alias);
+    }
+
+    // Has this effectively been overridden before (e.g. via XML)?
+    // 注解Bean如果覆盖了xml配置的Bean，要看BeanName是否相同，相同则抛出异常
+    if (isOverriddenByExistingDefinition(beanMethod, beanName)) {
+        if (beanName.equals(beanMethod.getConfigurationClass().getBeanName())) {
+            throw new BeanDefinitionStoreException(beanMethod.getConfigurationClass().getResource().getDescription(),
+                    beanName, "Bean name derived from @Bean method '" + beanMethod.getMetadata().getMethodName() +
+                    "' clashes with bean name for containing configuration class; please make those names unique!");
+        }
+        return;
+    }
+
+    ConfigurationClassBeanDefinition beanDef = new ConfigurationClassBeanDefinition(configClass, metadata);
+    beanDef.setResource(configClass.getResource());
+    beanDef.setSource(this.sourceExtractor.extractSource(metadata, configClass.getResource()));
+
+    // 被@Bean标注的方法是否为一个静态方法
+    if (metadata.isStatic()) {
+        // static @Bean method
+        beanDef.setBeanClassName(configClass.getMetadata().getClassName());
+        beanDef.setFactoryMethodName(methodName);
+    }
+    else {
+        // instance @Bean method
+        // 实例Bean，设置它的工厂方法为该方法名。这个工厂方法在后续创建Bean时会利用到
+        beanDef.setFactoryBeanName(configClass.getBeanName());
+        beanDef.setUniqueFactoryMethodName(methodName);
+    }
+    beanDef.setAutowireMode(AbstractBeanDefinition.AUTOWIRE_CONSTRUCTOR);
+   
+    //跳过必须检测?
+    beanDef.setAttribute(org.springframework.beans.factory.annotation.RequiredAnnotationBeanPostProcessor.
+            SKIP_REQUIRED_CHECK_ATTRIBUTE, Boolean.TRUE);
+
+    AnnotationConfigUtils.processCommonDefinitionAnnotations(beanDef, metadata);
+
+    Autowire autowire = bean.getEnum("autowire");
+    if (autowire.isAutowire()) {
+        beanDef.setAutowireMode(autowire.value());
+    }
+
+    // 是否需要自动注入
+    boolean autowireCandidate = bean.getBoolean("autowireCandidate");
+    if (!autowireCandidate) {
+        beanDef.setAutowireCandidate(false);
+    }
+
+    // 初始化方法
+    String initMethodName = bean.getString("initMethod");
+    if (StringUtils.hasText(initMethodName)) {
+        beanDef.setInitMethodName(initMethodName);
+    }
+
+    // 销毁方法
+    String destroyMethodName = bean.getString("destroyMethod");
+    beanDef.setDestroyMethodName(destroyMethodName);
+
+    // Consider scoping
+    ScopedProxyMode proxyMode = ScopedProxyMode.NO;
+    AnnotationAttributes attributes = AnnotationConfigUtils.attributesFor(metadata, Scope.class);
+    if (attributes != null) {
+        beanDef.setScope(attributes.getString("value"));
+        proxyMode = attributes.getEnum("proxyMode");
+        if (proxyMode == ScopedProxyMode.DEFAULT) {
+            proxyMode = ScopedProxyMode.NO;
+        }
+    }
+
+    // Replace the original bean definition with the target one, if necessary
+    // 如果有必要，将原始bean定义替换为目标bean定义
+    BeanDefinition beanDefToRegister = beanDef;
+    if (proxyMode != ScopedProxyMode.NO) {
+        BeanDefinitionHolder proxyDef = ScopedProxyCreator.createScopedProxy(
+                new BeanDefinitionHolder(beanDef, beanName), this.registry,
+                proxyMode == ScopedProxyMode.TARGET_CLASS);
+        beanDefToRegister = new ConfigurationClassBeanDefinition(
+                (RootBeanDefinition) proxyDef.getBeanDefinition(), configClass, metadata);
+    }
+
+    if (logger.isTraceEnabled()) {
+        logger.trace(String.format("Registering bean definition for @Bean method %s.%s()",
+                configClass.getMetadata().getClassName(), beanName));
+    }
+    // 注册Bean定义信息
+    this.registry.registerBeanDefinition(beanName, beanDefToRegister);
+}
+```
+
+5.2.5 加载配置类中的未加载完成的被@Bean标注的组件
+
+```java
+        // 5.2.4 加载配置类中的被@Bean标注的组件
+        if (registry.getBeanDefinitionCount() > candidateNames.length) {
+            String[] newCandidateNames = registry.getBeanDefinitionNames();
+            Set<String> oldCandidateNames = new HashSet<>(Arrays.asList(candidateNames));
+            Set<String> alreadyParsedClasses = new HashSet<>();
+            for (ConfigurationClass configurationClass : alreadyParsed) {
+                alreadyParsedClasses.add(configurationClass.getMetadata().getClassName());
+            }
+            for (String candidateName : newCandidateNames) {
+                if (!oldCandidateNames.contains(candidateName)) {
+                    BeanDefinition bd = registry.getBeanDefinition(candidateName);
+                    if (ConfigurationClassUtils.checkConfigurationClassCandidate(bd, this.metadataReaderFactory) &&
+                            !alreadyParsedClasses.contains(bd.getBeanClassName())) {
+                        candidates.add(new BeanDefinitionHolder(bd, candidateName));
+                    }
+                }
+            }
+            candidateNames = newCandidateNames;
+        }
+```
+
+在上面的配置类都加载完成后，它要比对 `BeanDefinition` 的个数，以及被处理过的数量。只要数量不对应，就会展开那些配置类继续加载。
+
+## 6. registerBeanPostProcessors：注册 BeanPostProcessor
+
+```java
+protected void registerBeanPostProcessors(ConfigurableListableBeanFactory beanFactory) {
+    //后置处理器注册委托
+    PostProcessorRegistrationDelegate.registerBeanPostProcessors(beanFactory, this);
+}
+
+public static void registerBeanPostProcessors(
+        ConfigurableListableBeanFactory beanFactory, AbstractApplicationContext applicationContext) {
+	
+    //获取所有BeanPostProcessor的全路径类名
+    String[] postProcessorNames = beanFactory.getBeanNamesForType(BeanPostProcessor.class, true, false);
+
+    // Register BeanPostProcessorChecker that logs an info message when
+    // a bean is created during BeanPostProcessor instantiation, i.e. when
+    // a bean is not eligible for getting processed by all BeanPostProcessors.
+    int beanProcessorTargetCount = beanFactory.getBeanPostProcessorCount() + 1 + postProcessorNames.length;
+    // 现有的数量+1+所有名称的数量
+    // 确认数量是否一致?
+    beanFactory.addBeanPostProcessor(new BeanPostProcessorChecker(beanFactory, beanProcessorTargetCount));
+
+    // 这次拿的接口类型是BeanPostProcessor，并且创建了更多的List，分别存放不同的PostProcessor
+    // Separate between BeanPostProcessors that implement PriorityOrdered,
+    // Ordered, and the rest.
+    List<BeanPostProcessor> priorityOrderedPostProcessors = new ArrayList<>();
+    List<BeanPostProcessor> internalPostProcessors = new ArrayList<>();
+    List<String> orderedPostProcessorNames = new ArrayList<>();
+    List<String> nonOrderedPostProcessorNames = new ArrayList<>();
+    // 根据PriorityOrdered、Ordered接口，对这些BeanPostProcessor进行归类
+    for (String ppName : postProcessorNames) {
+        if (beanFactory.isTypeMatch(ppName, PriorityOrdered.class)) {
+            BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
+            priorityOrderedPostProcessors.add(pp);
+            // MergedBeanDefinitionPostProcessor类型的后置处理器被单独放在一个集合中，说明该接口比较特殊
+            if (pp instanceof MergedBeanDefinitionPostProcessor) {
+                internalPostProcessors.add(pp);
+            }
+        }
+        else if (beanFactory.isTypeMatch(ppName, Ordered.class)) {
+            orderedPostProcessorNames.add(ppName);
+        }
+        else {
+            nonOrderedPostProcessorNames.add(ppName);
+        }
+    }
+
+    // First, register the BeanPostProcessors that implement PriorityOrdered.
+    // 注册实现了PriorityOrdered的BeanPostProcessor
+    sortPostProcessors(priorityOrderedPostProcessors, beanFactory);
+    registerBeanPostProcessors(beanFactory, priorityOrderedPostProcessors);
+
+    // Next, register the BeanPostProcessors that implement Ordered.
+    // 注册实现了Ordered接口的BeanPostProcessor
+    List<BeanPostProcessor> orderedPostProcessors = new ArrayList<>();
+    for (String ppName : orderedPostProcessorNames) {
+        BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
+        orderedPostProcessors.add(pp);
+        if (pp instanceof MergedBeanDefinitionPostProcessor) {
+            internalPostProcessors.add(pp);
+        }
+    }
+    sortPostProcessors(orderedPostProcessors, beanFactory);
+    registerBeanPostProcessors(beanFactory, orderedPostProcessors);
+
+    // Now, register all regular BeanPostProcessors.
+    // 注册普通的BeanPostProcessor
+    List<BeanPostProcessor> nonOrderedPostProcessors = new ArrayList<>();
+    for (String ppName : nonOrderedPostProcessorNames) {
+        BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
+        nonOrderedPostProcessors.add(pp);
+        if (pp instanceof MergedBeanDefinitionPostProcessor) {
+            internalPostProcessors.add(pp);
+        }
+    }
+    registerBeanPostProcessors(beanFactory, nonOrderedPostProcessors);
+
+    // Finally, re-register all internal BeanPostProcessors.
+    // 最最后，才注册那些MergedBeanDefinitionPostProcessor
+    sortPostProcessors(internalPostProcessors, beanFactory);
+    registerBeanPostProcessors(beanFactory, internalPostProcessors);
+
+    // Re-register post-processor for detecting inner beans as ApplicationListeners,
+    // moving it to the end of the processor chain (for picking up proxies etc).
+    // 手动加了一个ApplicationListenerDetector，它是一个ApplicationListener的检测器
+    // 这个检测器用于在最后检测IOC容器中的Bean是否为ApplicationListener接口的实现类，如果是，还会有额外的作用
+    beanFactory.addBeanPostProcessor(new ApplicationListenerDetector(applicationContext));
+}
+```
+
+6.1 MergedBeanDefinitionPostProcessor
+
+这个接口类型的处理器被单独放入internalPostProcessors集合中,所以单独讲解
+
+> Post-processor callback interface for merged bean definitions at runtime. BeanPostProcessor implementations may implement this sub-interface in order to post-process the merged bean definition (a processed copy of the original bean definition) that the Spring BeanFactory uses to create a bean instance. The postProcessMergedBeanDefinition method may for example introspect the bean definition in order to prepare some cached metadata before post-processing actual instances of a bean. It is also allowed to modify the bean definition but only for definition properties which are actually intended for concurrent modification. Essentially, this only applies to operations defined on the RootBeanDefinition itself but not to the properties of its base classes.
+>
+> 在运行时用于合并bean定义的后处理器回调接口。 `BeanPostProcessor` 实现可以实现此子接口，以便对Spring `BeanFactory` 用于创建bean实例的合并bean定义（原始bean定义的已处理副本）进行后处理。
+>
+> `postProcessMergedBeanDefinition` 方法可以例如内省bean定义，以便在对bean的实际实例进行后处理之前准备一些缓存的元数据。还允许修改bean定义，但只允许修改实际上用于并行修改的定义属性。本质上，这仅适用于 `RootBeanDefinition` 本身定义的操作，不适用于其基类的属性。
+
+其实现类是<font color="red">AutowiredAnnotationBeanPostProcessor</font>,自动注入的后置处理器,实现自动注入!
+
+6.1.1 【重要】AutowiredAnnotationBeanPostProcessor
+
+> BeanPostProcessor implementation that autowires annotated fields, setter methods and arbitrary config methods. Such members to be injected are detected through a Java 5 annotation: by default, Spring's @Autowired and @Value annotations. Also supports JSR-330's @Inject annotation, if available, as a direct alternative to Spring's own @Autowired. Only one constructor (at max) of any given bean class may declare this annotation with the 'required' parameter set to true, indicating the constructor to autowire when used as a Spring bean. If multiple non-required constructors declare the annotation, they will be considered as candidates for autowiring. The constructor with the greatest number of dependencies that can be satisfied by matching beans in the Spring container will be chosen. If none of the candidates can be satisfied, then a primary/default constructor (if present) will be used. If a class only declares a single constructor to begin with, it will always be used, even if not annotated. An annotated constructor does not have to be public. Fields are injected right after construction of a bean, before any config methods are invoked. Such a config field does not have to be public.
+>
+> `BeanPostProcessor` 的实现，可自动连接带注解的字段，setter方法和任意config方法。通过Java 5注释检测要注入的此类成员：默认情况下，Spring的 `@Autowired` 和 `@Value` 注解。 还支持JSR-330的 `@Inject` 注解（如果可用），以替代Spring自己的 `@Autowired` 。 任何给定bean类的构造器（最大）只能使用 "required" 参数设置为true来声明此批注，指示在用作Spring bean时要自动装配的构造器。如果多个不需要的构造函数声明了注释，则它们将被视为自动装配的候选对象。将选择通过匹配Spring容器中的bean可以满足的依赖关系数量最多的构造函数。如果没有一个候选者满意，则将使用主/默认构造函数（如果存在）。如果一个类仅声明一个单一的构造函数开始，即使没有注释，也将始终使用它。带注解的构造函数不必是public的。 在构造任何bean之后，调用任何配置方法之前，立即注入字段。这样的配置字段不必是public的。 Config方法可以具有任意名称和任意数量的参数。这些参数中的每个参数都将与Spring容器中的匹配bean自动连接。 Bean属性设置器方法实际上只是这种常规config方法的特例。 Config方法不必是public的。
+
+实现了 <font color="red">`MergedBeanDefinitionPostProcessor`</font> ，那自然要实现接口中的方法：<font color="red">`postProcessMergedBeanDefinition`</font>
+
+```java
+public void postProcessMergedBeanDefinition(RootBeanDefinition beanDefinition, Class<?> beanType, String beanName) {
+    // 先获取注入的依赖，再进行对象检查
+    // 寻找需要自动注入的元数据
+    InjectionMetadata metadata = findAutowiringMetadata(beanName, beanType, null);
+    metadata.checkConfigMembers(beanDefinition);
+}
+```
+
+6.1.1.1 findAutowiringMetadata
+
+```java
+private InjectionMetadata findAutowiringMetadata(String beanName, Class<?> clazz, @Nullable PropertyValues pvs) {
+    // Fall back to class name as cache key, for backwards compatibility with custom callers.
+    String cacheKey = (StringUtils.hasLength(beanName) ? beanName : clazz.getName());
+    // 首先在CHM中寻找,尽量无锁化
+    // Quick check on the concurrent map first, with minimal locking.
+    // 首先从缓存中取，如果没有才创建
+    InjectionMetadata metadata = this.injectionMetadataCache.get(cacheKey);
+    if (InjectionMetadata.needsRefresh(metadata, clazz)) {
+        synchronized (this.injectionMetadataCache) {
+            metadata = this.injectionMetadataCache.get(cacheKey);
+            // 单例的doublecheck,避免已经有线程完成了上述操作
+            if (InjectionMetadata.needsRefresh(metadata, clazz)) {
+                if (metadata != null) {
+                    metadata.clear(pvs);
+                }
+                // 构建自动装配的信息
+                metadata = buildAutowiringMetadata(clazz);
+                // 放入缓存
+                this.injectionMetadataCache.put(cacheKey, metadata);
+            }
+        }
+    }
+    return metadata;
+}
+```
+
+6.1.1.2 buildAutowiringMetadata
+
+```java
+private InjectionMetadata buildAutowiringMetadata(final Class<?> clazz) {
+    List<InjectionMetadata.InjectedElement> elements = new ArrayList<>();
+    Class<?> targetClass = clazz;
+    
+    // 循环获取父类信息
+    do {
+        final List<InjectionMetadata.InjectedElement> currElements = new ArrayList<>();
+
+        // 循环获取类上的属性，并判断是否有@Autowired等注入类注解
+        ReflectionUtils.doWithLocalFields(targetClass, field -> {
+            AnnotationAttributes ann = findAutowiredAnnotation(field);
+            if (ann != null) {
+                if (Modifier.isStatic(field.getModifiers())) {
+                    if (logger.isInfoEnabled()) {
+                        logger.info("Autowired annotation is not supported on static fields: " + field);
+                    }
+                    return;
+                }
+                boolean required = determineRequiredStatus(ann);
+                currElements.add(new AutowiredFieldElement(field, required));
+            }
+        });
+
+        // 循环获取类上的方法，并判断是否有需要依赖的项
+        ReflectionUtils.doWithLocalMethods(targetClass, method -> {
+            Method bridgedMethod = BridgeMethodResolver.findBridgedMethod(method);
+            if (!BridgeMethodResolver.isVisibilityBridgeMethodPair(method, bridgedMethod)) {
+                return;
+            }
+            AnnotationAttributes ann = findAutowiredAnnotation(bridgedMethod);
+            if (ann != null && method.equals(ClassUtils.getMostSpecificMethod(method, clazz))) {
+                if (Modifier.isStatic(method.getModifiers())) {
+                    if (logger.isInfoEnabled()) {
+                        logger.info("Autowired annotation is not supported on static methods: " + method);
+                    }
+                    return;
+                }
+                if (method.getParameterCount() == 0) {
+                    if (logger.isInfoEnabled()) {
+                        logger.info("Autowired annotation should only be used on methods with parameters: " +
+                                method);
+                    }
+                }
+                boolean required = determineRequiredStatus(ann);
+                PropertyDescriptor pd = BeanUtils.findPropertyForMethod(bridgedMethod, clazz);
+                currElements.add(new AutowiredMethodElement(method, required, pd));
+            }
+        });
+
+        elements.addAll(0, currElements);
+        targetClass = targetClass.getSuperclass();
+    }
+    // 判断是否已经回溯到Object类
+    while (targetClass != null && targetClass != Object.class);
+
+    return new InjectionMetadata(clazz, elements);
+}
+```
+
+do-while 循环是用来一步一步往父类上爬的（可以看到这个循环体的最后一行是获取父类，判断条件是判断是否爬到了 `Object`）
+
+```java
+// 反射遍历当前类的属性，并判断上面是否有 @Autowired 等类型的注解
+private final Set<Class<? extends Annotation>> autowiredAnnotationTypes = new LinkedHashSet<>(4);
+
+public AutowiredAnnotationBeanPostProcessor() {
+    this.autowiredAnnotationTypes.add(Autowired.class);
+    this.autowiredAnnotationTypes.add(Value.class);
+    try {
+        this.autowiredAnnotationTypes.add((Class<? extends Annotation>)
+                ClassUtils.forName("javax.inject.Inject", AutowiredAnnotationBeanPostProcessor.class.getClassLoader()));
+    }
+    catch (ClassNotFoundException ex) {
+        // JSR-330 API not available - simply skip.
+    }
+}
+// 判断Autowired,Value和javax.inject.Inject这三个类型的注解
+private AnnotationAttributes findAutowiredAnnotation(AccessibleObject ao) {
+    if (ao.getAnnotations().length > 0) {  // autowiring annotations have to be local
+        for (Class<? extends Annotation> type : this.autowiredAnnotationTypes) {
+            AnnotationAttributes attributes = AnnotatedElementUtils.getMergedAnnotationAttributes(ao, type);
+            if (attributes != null) {
+                return attributes;
+            }
+        }
+    }
+    return null;
+}
+```
+
+这部分判断的几种注解： `@Autowired` 、`@Value` 、`@Inject`
+
+同时也会对方法参数中书否带有以上注解进行判断!
+
+6.1.1.3 checkConfigMembers
+
+```java
+public void checkConfigMembers(RootBeanDefinition beanDefinition) {
+    Set<InjectedElement> checkedElements = new LinkedHashSet<>(this.injectedElements.size());
+    for (InjectedElement element : this.injectedElements) {
+        Member member = element.getMember();
+        if (!beanDefinition.isExternallyManagedConfigMember(member)) {
+            beanDefinition.registerExternallyManagedConfigMember(member);
+            checkedElements.add(element);
+            if (logger.isTraceEnabled()) {
+                logger.trace("Registered injected element on class [" + this.targetClass.getName() + "]: " + element);
+            }
+        }
+    }
+    this.checkedElements = checkedElements;
+}
+```
+
+这里涉及了`Member`这个概念
+
+> Member is an interface that reflects identifying information about a single member (a field or a method) or a constructor.
+>
+> 反映有关单个成员（字段或方法）或构造函数的标识信息的接口。
