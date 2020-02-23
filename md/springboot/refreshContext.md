@@ -2554,3 +2554,242 @@ public void checkConfigMembers(RootBeanDefinition beanDefinition) {
 > Member is an interface that reflects identifying information about a single member (a field or a method) or a constructor.
 >
 > 反映有关单个成员（字段或方法）或构造函数的标识信息的接口。
+
+6.2 ApplicationListenerDetector
+
+注册在BeanPostProcessor中的最后一步，显式声明的
+
+`ApplicationListenerDetector` 也实现了 `MergedBeanDefinitionPostProcessor`
+
+```java
+public void postProcessMergedBeanDefinition(RootBeanDefinition beanDefinition, Class<?> beanType, String beanName) {
+    this.singletonNames.put(beanName, beanDefinition.isSingleton());
+}
+```
+
+只是保存Bean是否为单实例Bean的信息。这个单实例Bean的机制在前面也提到过，只有单实例Bean才能注册到监听器列表中。
+
+7.initMessageSource：初始化MessageSource
+
+```java
+public static final String MESSAGE_SOURCE_BEAN_NAME = "messageSource";
+
+//部分只有该类中需要的常量信息,不需要直接写入到常量类中,在该class中用public static final String申明即可
+protected void initMessageSource() {
+    ConfigurableListableBeanFactory beanFactory = getBeanFactory();
+    // 检查是否已经存在了MessageSource组件，如果有，直接赋值
+    if (beanFactory.containsLocalBean(MESSAGE_SOURCE_BEAN_NAME)) {
+        this.messageSource = beanFactory.getBean(MESSAGE_SOURCE_BEAN_NAME, MessageSource.class);
+        // Make MessageSource aware of parent MessageSource.
+        if (this.parent != null && this.messageSource instanceof HierarchicalMessageSource) {
+            //等级的,即有继承关系的
+            HierarchicalMessageSource hms = (HierarchicalMessageSource) this.messageSource;
+            if (hms.getParentMessageSource() == null) {
+                // Only set parent context as parent MessageSource if no parent MessageSource
+                // registered already.
+                hms.setParentMessageSource(getInternalParentMessageSource());
+            }
+        }
+        if (logger.isDebugEnabled()) {
+            logger.debug("Using MessageSource [" + this.messageSource + "]");
+        }
+    }
+    // 如果没有，创建一个，并注册到BeanFactory中
+    else {
+        // Use empty MessageSource to be able to accept getMessage calls.
+        DelegatingMessageSource dms = new DelegatingMessageSource();
+        dms.setParentMessageSource(getInternalParentMessageSource());
+        this.messageSource = dms;
+        beanFactory.registerSingleton(MESSAGE_SOURCE_BEAN_NAME, this.messageSource);
+        if (logger.isDebugEnabled()) {
+            logger.debug("Unable to locate MessageSource with name '" + MESSAGE_SOURCE_BEAN_NAME +
+                    "': using default [" + this.messageSource + "]");
+        }
+    }
+}
+```
+
+它默认创建的实现类是 `DelegatingMessageSource` ，它的文档注释：
+
+> Empty <font color="red">`MessageSource`</font> that delegates all calls to the parent MessageSource. If no parent is available, it simply won't resolve any message.
+>
+> Used as placeholder by AbstractApplicationContext, if the context doesn't define its own MessageSource. Not intended for direct use in applications.
+>
+> 空的MessageSource，将所有调用委派给父MessageSource。如果没有父母可用，它将根本无法解决任何消息。
+>
+> 如果上下文未定义其自己的MessageSource，则AbstractApplicationContext用作占位符。不适用于直接在应用程序中使用。
+
+8.initApplicationEventMulticaster：初始化事件派发器
+
+```java
+private ApplicationEventMulticaster applicationEventMulticaster;
+
+public static final String APPLICATION_EVENT_MULTICASTER_BEAN_NAME = "applicationEventMulticaster";
+
+// 初始化当前ApplicationContext的事件广播器
+protected void initApplicationEventMulticaster() {
+    ConfigurableListableBeanFactory beanFactory = getBeanFactory();
+    //与上述其余组件一样,首先先判断是否已经创建了该组件,如果已经存在,直接获取
+    if (beanFactory.containsLocalBean(APPLICATION_EVENT_MULTICASTER_BEAN_NAME)) {
+        // 8.1 ApplicationEventMulticaster
+        this.applicationEventMulticaster =
+                beanFactory.getBean(APPLICATION_EVENT_MULTICASTER_BEAN_NAME, ApplicationEventMulticaster.class);
+        if (logger.isDebugEnabled()) {
+            logger.debug("Using ApplicationEventMulticaster [" + this.applicationEventMulticaster + "]");
+        }
+    }
+    else {
+        //否则,其默认实现类是SimpleApplicationEventMulticaster
+        this.applicationEventMulticaster = new SimpleApplicationEventMulticaster(beanFactory);
+        beanFactory.registerSingleton(APPLICATION_EVENT_MULTICASTER_BEAN_NAME, this.applicationEventMulticaster);
+        if (logger.isDebugEnabled()) {
+            logger.debug("Unable to locate ApplicationEventMulticaster with name '" +
+                    APPLICATION_EVENT_MULTICASTER_BEAN_NAME +
+                    "': using default [" + this.applicationEventMulticaster + "]");
+        }
+    }
+}
+```
+
+8.1 ApplicationEventMulticaster
+
+> Interface to be implemented by objects that can manage a number of ApplicationListener objects, and publish events to them.
+>
+> 由可以管理多个 `ApplicationListener` 对象并向其发布事件的对象实现的接口。
+
+由此可知其功能是一个事件发布器。它的核心方法-事件发布的源码如下：
+
+```java
+@Override
+public void multicastEvent(ApplicationEvent event) {
+    // 往下面的方法跳转
+    //根据这个方法,我猜测它会根据时间的类型分别进行处理
+    multicastEvent(event, resolveDefaultEventType(event));
+}
+
+@Override
+public void multicastEvent(final ApplicationEvent event, @Nullable ResolvableType eventType) {
+    //如果该事件有类型,则按照时间类型处理,否则按照默认类型处理
+    //这边给我一个启示,就是如果需要编写代码,自己实现的部分就是默认类型,并提供接口供外部扩展
+    ResolvableType type = (eventType != null ? eventType : resolveDefaultEventType(event));
+    Executor executor = getTaskExecutor();
+    //根据事件类型获取对应监听器
+    for (ApplicationListener<?> listener : getApplicationListeners(event, type)) {
+        //这个执行器在这边的作用是对监听增加AOP?
+        if (executor != null) {
+            executor.execute(() -> invokeListener(listener, event));
+        }
+        else {
+            // 执行监听器，继续往下跳转
+            invokeListener(listener, event);
+        }
+    }
+}
+
+protected void invokeListener(ApplicationListener<?> listener, ApplicationEvent event) {
+    ErrorHandler errorHandler = getErrorHandler();
+    if (errorHandler != null) {
+        //如果有异常处理器,则进行try-catch异常处理
+        try {
+            // 真正执行监听器的方法
+            doInvokeListener(listener, event);
+        }
+        catch (Throwable err) {
+            errorHandler.handleError(err);
+        }
+    }
+    //否则让程序直接崩溃?
+    else {
+        doInvokeListener(listener, event);
+    }
+}
+
+private void doInvokeListener(ApplicationListener listener, ApplicationEvent event) {
+    try {
+        // ApplicationListener的方法
+        listener.onApplicationEvent(event);
+    }
+    catch (ClassCastException ex) {
+        String msg = ex.getMessage();
+        if (msg == null || matchesClassCastMessage(msg, event.getClass())) {
+            // Possibly a lambda-defined listener which we could not resolve the generic event type for
+            // -> let's suppress the exception and just log a debug message.
+            Log logger = LogFactory.getLog(getClass());
+            if (logger.isTraceEnabled()) {
+                logger.trace("Non-matching event type for listener: " + listener, ex);
+            }
+        }
+        else {
+            throw ex;
+        }
+    }
+}onRefresh：子类扩展刷新
+```
+
+9.onRefresh：子类扩展刷新
+
+```java
+protected void onRefresh() throws BeansException {
+    // For subclasses: do nothing by default.
+    //模板方法,空实现,由具体实现类实现需要的逻辑	
+}
+```
+
+10.registerListeners：注册监听器
+
+```java
+protected void registerListeners() {
+    // Register statically specified listeners first.
+    // 把所有的IOC容器中以前缓存好的一组ApplicationListener取出来，添加到事件派发器中
+    for (ApplicationListener<?> listener : getApplicationListeners()) {
+        getApplicationEventMulticaster().addApplicationListener(listener);
+    }
+
+    // Do not initialize FactoryBeans here: We need to leave all regular beans
+    // uninitialized to let post-processors apply to them!
+    // 拿到BeanFactory中定义的所有的ApplicationListener类型的组件全部取出，添加到事件派发器中
+    String[] listenerBeanNames = getBeanNamesForType(ApplicationListener.class, true, false);
+    for (String listenerBeanName : listenerBeanNames) {
+        getApplicationEventMulticaster().addApplicationListenerBean(listenerBeanName);
+    }
+
+    // Publish early application events now that we finally have a multicaster...
+    // 10.1 广播早期事件
+    Set<ApplicationEvent> earlyEventsToProcess = this.earlyApplicationEvents;
+    // 取出所有早期事件后,将其清空?
+    this.earlyApplicationEvents = null;
+    // 如果存在早期事件,进行广播
+    if (earlyEventsToProcess != null) {
+        for (ApplicationEvent earlyEvent : earlyEventsToProcess) {
+            getApplicationEventMulticaster().multicastEvent(earlyEvent);
+        }
+    }
+}
+
+public Collection<ApplicationListener<?>> getApplicationListeners() {
+    return this.applicationListeners;
+}
+```
+
+10.1 earlyEvent：早期事件
+
+在 <font color='red'>`refresh`</font> 方法的<font color="red"> `prepareRefresh`</font> 中，最后一步有这么一句：
+
+```
+    // Allow for the collection of early ApplicationEvents,
+    // to be published once the multicaster is available...
+    // 这个集合的作用，是保存容器中的一些事件，以便在合适的时候利用事件广播器来广播这些事件
+    // 【配合registerListeners方法中的第三部分使用】
+    this.earlyApplicationEvents = new LinkedHashSet<>();
+```
+
+早期事件的发布时机：**监听器被注册，但其余的单实例Bean还没有创建时**。
+
+早期事件的设计由来：**留给开发者，在后置处理器和监听器都被创建好，其余的单实例Bean还没有创建时，提供一个预留的时机来处理一些额外的事情**。
+
+10.2 【扩展】SpringFramework中的观察者模式
+
+事件派发器（广播器）、事件监听器（被通知者）、事件（ApplicationEvent），其实这就是构成观察者模式的三大组件
+
+- 广播器（`ApplicationEventMulticaster`）：观察事件发生
+- 被通知者（`ApplicationListener`）：接收广播器发送的广播，并做出相应的行为
