@@ -231,3 +231,245 @@ protected ServletWebServerFactory getWebServerFactory() {
 }
 ```
 
+默认的 `Tomcat` 创建工厂应该从这里取出：`TomcatServletWebServerFactory`，他实现了 `ServletWebServerFactory` 接口。
+
+这个 `TomcatServletWebServerFactory`，应该是在自动配置时注册好的。
+
+所以需要在spring.factory找到相关配置类
+
+#### 9.1.1 自动配置下的 TomcatServletWebServerFactory 注册时机
+
+```java
+@Configuration
+@AutoConfigureOrder(Ordered.HIGHEST_PRECEDENCE)
+@ConditionalOnClass(ServletRequest.class)
+@ConditionalOnWebApplication(type = Type.SERVLET)
+@EnableConfigurationProperties(ServerProperties.class)
+@Import({ ServletWebServerFactoryAutoConfiguration.BeanPostProcessorsRegistrar.class,
+        ServletWebServerFactoryConfiguration.EmbeddedTomcat.class,
+        ServletWebServerFactoryConfiguration.EmbeddedJetty.class,
+        ServletWebServerFactoryConfiguration.EmbeddedUndertow.class })
+public class ServletWebServerFactoryAutoConfiguration
+```
+
+使用 `@Import` 导入了 `ServletWebServerFactoryConfiguration` 以及三个内部类：
+
+```java
+@Configuration
+class ServletWebServerFactoryConfiguration {
+
+    @Configuration
+    // 如果classpath下有Servlet的类，有Tomcat的类，有UpgradeProtocol的类，这个配置就生效
+    @ConditionalOnClass({ Servlet.class, Tomcat.class, UpgradeProtocol.class })
+    @ConditionalOnMissingBean(value = ServletWebServerFactory.class, search = SearchStrategy.CURRENT)
+    public static class EmbeddedTomcat {
+        @Bean
+        public TomcatServletWebServerFactory tomcatServletWebServerFactory() {
+            return new TomcatServletWebServerFactory();
+        }
+    }
+
+    @Configuration
+    @ConditionalOnClass({ Servlet.class, Server.class, Loader.class, WebAppContext.class })
+    @ConditionalOnMissingBean(value = ServletWebServerFactory.class, search = SearchStrategy.CURRENT)
+    public static class EmbeddedJetty {
+        @Bean
+        public JettyServletWebServerFactory JettyServletWebServerFactory() {
+            return new JettyServletWebServerFactory();
+        }
+    }
+
+    @Configuration
+    @ConditionalOnClass({ Servlet.class, Undertow.class, SslClientAuthMode.class })
+    @ConditionalOnMissingBean(value = ServletWebServerFactory.class, search = SearchStrategy.CURRENT)
+    public static class EmbeddedUndertow {
+        @Bean
+        public UndertowServletWebServerFactory undertowServletWebServerFactory() {
+            return new UndertowServletWebServerFactory();
+        }
+    }
+}
+```
+
+### 9.2 getWebServer：创建嵌入式Servlet容器
+
+```java
+// TomcatServletWebServerFactory
+public WebServer getWebServer(ServletContextInitializer... initializers) {
+    Tomcat tomcat = new Tomcat();
+    File baseDir = (this.baseDirectory != null) ? this.baseDirectory : createTempDir("tomcat");
+    tomcat.setBaseDir(baseDir.getAbsolutePath());
+    Connector connector = new Connector(this.protocol);
+    tomcat.getService().addConnector(connector);
+    customizeConnector(connector);
+    tomcat.setConnector(connector);
+    tomcat.getHost().setAutoDeploy(false);
+    configureEngine(tomcat.getEngine());
+    for (Connector additionalConnector : this.additionalTomcatConnectors) {
+        tomcat.getService().addConnector(additionalConnector);
+    }
+    prepareContext(tomcat.getHost(), initializers);
+    return getTomcatWebServer(tomcat);
+}
+```
+
+## 12. ServletWebServerApplicationContext.finishRefresh
+
+`ServletWebServerApplicationContext` 还重写了 `finishRefresh` 方法：
+
+```java
+protected void finishRefresh() {
+    super.finishRefresh();
+    WebServer webServer = startWebServer();
+    if (webServer != null) {
+        publishEvent(new ServletWebServerInitializedEvent(webServer, this));
+    }
+}
+```
+
+可以发现在此处启动嵌入式Web容器。
+
+```java
+private WebServer startWebServer() {
+    WebServer webServer = this.webServer;
+    if (webServer != null) {
+        webServer.start();
+    }
+    return webServer;
+}
+```
+
+## 回到原来SpringApplication.run的标号
+
+```java
+   // 4.11 刷新后的处理
+    afterRefresh(context, applicationArguments);
+    stopWatch.stop();
+    if (this.logStartupInfo) {
+        new StartupInfoLogger(this.mainApplicationClass).logStarted(getApplicationLog(), stopWatch);
+    }
+    // 4.12 发布started事件
+    listeners.started(context);
+    // 4.13 运行器回调
+    callRunners(context, applicationArguments);
+```
+
+### 4.11 afterRefresh：刷新后的处理
+
+```java
+protected void afterRefresh(ConfigurableApplicationContext context, ApplicationArguments args) {
+}
+```
+
+### 4.12 listeners.started：发布started事件
+
+```java
+public void started(ConfigurableApplicationContext context) {
+    for (SpringApplicationRunListener listener : this.listeners) {
+        listener.started(context);
+    }
+}
+```
+
+直接来到 `EventPublishingRunListener` ：
+
+```java
+public void started(ConfigurableApplicationContext context) {
+    context.publishEvent(new ApplicationStartedEvent(this.application, this.args, context));
+}
+```
+
+回到 `AbstractApplicationContext` 中：
+
+```java
+public void publishEvent(ApplicationEvent event) {
+    publishEvent(event, null);
+}
+```
+
+之后继续往下调：
+
+```java
+protected void publishEvent(Object event, @Nullable ResolvableType eventType) {
+    // ......
+    if (this.earlyApplicationEvents != null) {
+        this.earlyApplicationEvents.add(applicationEvent);
+    }
+    //在当前IOC容器发布
+    else {
+        getApplicationEventMulticaster().multicastEvent(applicationEvent, eventType);
+    }
+
+    // Publish event via parent context as well...
+    // 在父容器发布事件
+    if (this.parent != null) {
+        if (this.parent instanceof AbstractApplicationContext) {
+            ((AbstractApplicationContext) this.parent).publishEvent(event, eventType);
+        }
+        else {
+            this.parent.publishEvent(event);
+        }
+    }
+}
+```
+
+### 4.13 callRunners：运行器回调
+
+```java
+//从容器中获取了ApplicationRunner和CommandLineRunner
+private void callRunners(ApplicationContext context, ApplicationArguments args) {
+    List<Object> runners = new ArrayList<>();
+    runners.addAll(context.getBeansOfType(ApplicationRunner.class).values());
+    runners.addAll(context.getBeansOfType(CommandLineRunner.class).values());
+    AnnotationAwareOrderComparator.sort(runners);
+    //ApplicationRunner先回调，CommandLineRunner后回调
+    for (Object runner : new LinkedHashSet<>(runners)) {
+        if (runner instanceof ApplicationRunner) {
+            callRunner((ApplicationRunner) runner, args);
+        }
+        if (runner instanceof CommandLineRunner) {
+            callRunner((CommandLineRunner) runner, args);
+        }
+    }
+}
+
+private void callRunner(ApplicationRunner runner, ApplicationArguments args) {
+    try {
+        (runner).run(args);
+    }
+    catch (Exception ex) {
+        throw new IllegalStateException("Failed to execute ApplicationRunner", ex);
+    }
+}
+
+private void callRunner(CommandLineRunner runner, ApplicationArguments args) {
+    try {
+        (runner).run(args.getSourceArgs());
+    }
+    catch (Exception ex) {
+        throw new IllegalStateException("Failed to execute CommandLineRunner", ex);
+    }
+}
+```
+
+这部分涉及到两个概念： `CommandLineRunner` 和 `ApplicationRunner` 。
+
+(命令行运行器和应用运行器?)
+
+#### 4.13.1 CommandLineRunner
+
+> Interface used to indicate that a bean should run when it is contained within a SpringApplication. Multiple ApplicationRunner beans can be defined within the same application context and can be ordered using the Ordered interface or @Order annotation.
+>
+> 用于指示bean被包含在 `SpringApplication` 中时应该运行的接口。可以在同一应用程序上下文中定义多个 `ApplicationRunner` Bean，并可以使用 `Ordered` 接口或 `@Order` 注解对其进行排序。
+
+#### 4.13.2 ApplicationRunner
+
+> Interface used to indicate that a bean should run when it is contained within a SpringApplication. Multiple ApplicationRunnerbeans can be defined within the same application context and can be ordered using the Ordered interface or @Order annotation. If you need access to ApplicationArguments instead of the raw String array consider using ApplicationRunner.
+>
+> 用于指示bean被包含在 `SpringApplication` 中时应该运行的接口。可以在同一应用程序上下文中定义多个 `ApplicationArguments` Bean，并且可以使用 `Ordered` 接口或 `@Order` 注解对其进行排序。
+>
+> 如果需要访问 `ApplicationArguments` 而不是原始String数组，请考虑使用 `ApplicationRunner` 。
+
+#### 4.13.3 【扩展】SpringBoot1.x中对这两个组件的应用
+
+其实这两个接口组件，如果翻看它的文档注释中的since，会发现一个没有标注，一个是 `SpringBoot1.3.0`，说明它们都来自于 `SpringBoot1.x` 。它们本来是用于监听特定的时机来执行一些操作，奈何 `SpringBoot2.x` 后扩展了事件，可以通过监听 `ApplicationStartedEvent` 来实现跟这两个组件一样的效果。换句话说，这两个组件已经被隐式的“淘汰”了，不必过多深究。
