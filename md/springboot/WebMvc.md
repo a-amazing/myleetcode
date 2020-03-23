@@ -338,7 +338,6 @@ public void afterPropertiesSet() {
     this.config.setTrailingSlashMatch(this.useTrailingSlashMatch);
     this.config.setRegisteredSuffixPatternMatch(this.useRegisteredSuffixPatternMatch);
     this.config.setContentNegotiationManager(getContentNegotiationManager());
-
     super.afterPropertiesSet();
 }
 ```
@@ -359,6 +358,7 @@ private static final String SCOPED_TARGET_NAME_PREFIX = "scopedTarget.";
 protected void initHandlerMethods() {
     for (String beanName : getCandidateBeanNames()) {
         if (!beanName.startsWith(SCOPED_TARGET_NAME_PREFIX)) {
+            // 只要不是scopedTarget打头的bean,都可能是候选bean
             processCandidateBean(beanName);
         }
     }
@@ -382,6 +382,7 @@ protected void processCandidateBean(String beanName) {
             logger.trace("Could not resolve type for bean '" + beanName + "'", ex);
         }
     }
+    // 是否被标注了@Controller注解或者@RequestMapping注解
     if (beanType != null && isHandler(beanType)) {
         detectHandlerMethods(beanName);
     }
@@ -399,6 +400,113 @@ protected boolean isHandler(Class<?> beanType) {
 
 很明显它要看当前Bean是否有 `@Controller` 或 `@RequestMapping` 标注。
 
-至此发现了重大关键点：**它真的在解析 `@Controller` 和 `@RequestMapping` 了**！证明咱的寻找思路是正确的。
+至此发现了重大关键点：**它真的在解析 `@Controller` 和 `@RequestMapping` 了**！
 
 那判断成功后，if中的结构体就一定是解析类中标注了 `@RequestMapping` 的方法了。
+
+### 3.4 detectHandlerMethods
+
+```java
+protected void detectHandlerMethods(Object handler) {
+    Class<?> handlerType = (handler instanceof String ?
+            obtainApplicationContext().getType((String) handler) : handler.getClass());
+
+    if (handlerType != null) {
+        Class<?> userType = ClassUtils.getUserClass(handlerType);
+        // 3.5 解析筛选方法
+        Map<Method, T> methods = MethodIntrospector.selectMethods(userType,
+                (MethodIntrospector.MetadataLookup<T>) method -> {
+                    try {
+                        return getMappingForMethod(method, userType);
+                    }
+                    catch (Throwable ex) {
+                        throw new IllegalStateException("Invalid mapping on handler class [" +
+                                userType.getName() + "]: " + method, ex);
+                    }
+                });
+        if (logger.isTraceEnabled()) {
+            logger.trace(formatMappings(userType, methods));
+        }
+        // 3.6 注册方法映射
+        methods.forEach((method, mapping) -> {
+            Method invocableMethod = AopUtils.selectInvocableMethod(method, userType);
+            registerHandlerMethod(handler, invocableMethod, mapping);
+        });
+    }
+}
+```
+
+上面的一开始还是拿到这个Bean的类型，下面会使用一个 `MethodInterceptor` 来筛选一些方法。
+
+#### 3.4.0 MethodIntrospector.selectMethods
+
+```java
+public static <T> Map<Method, T> selectMethods(Class<?> targetType, final MetadataLookup<T> metadataLookup) {
+    final Map<Method, T> methodMap = new LinkedHashMap<>();
+    Set<Class<?>> handlerTypes = new LinkedHashSet<>();
+    Class<?> specificHandlerType = null;
+	
+    //如果不是代理类
+    if (!Proxy.isProxyClass(targetType)) {
+        //实际的Class就是targetType
+        specificHandlerType = ClassUtils.getUserClass(targetType);
+        handlerTypes.add(specificHandlerType);
+    }
+    //获取当前类的所有接口?
+    handlerTypes.addAll(ClassUtils.getAllInterfacesForClassAsSet(targetType));
+
+    for (Class<?> currentHandlerType : handlerTypes) {
+        final Class<?> targetClass = (specificHandlerType != null ? specificHandlerType : currentHandlerType);
+
+        ReflectionUtils.doWithMethods(currentHandlerType, method -> {
+            //获取最有可能的方法?(最具体的方法)
+            Method specificMethod = ClassUtils.getMostSpecificMethod(method, targetClass);
+            // 在元数据中寻找方法对应元数据
+            T result = metadataLookup.inspect(specificMethod);
+            //如果存在
+            if (result != null) {
+                // 桥接方法是 JDK 1.5 引入泛型后，为了使Java的泛型方法生成的字节码和 1.5 版本前的字节码相兼容，由编译器自动生成的方法。
+                // 一个子类在继承（或实现）一个父类（或接口）的泛型方法时，在子类中明确指定了泛型类型，那么在编译时编译器会自动生成桥接方法（当然还有其他情况会生成桥接方法，这里只是列举了其中一种情况）
+                Method bridgedMethod = BridgeMethodResolver.findBridgedMethod(specificMethod);
+                //
+                if (bridgedMethod == specificMethod || metadataLookup.inspect(bridgedMethod) == null) {
+                    methodMap.put(specificMethod, result);
+                }
+            }
+        }, ReflectionUtils.USER_DECLARED_METHODS);
+    }
+
+    return methodMap;
+}
+```
+
+核心是中间的 for 循环：它会循环类中所有的方法，并且根据一个 `MetadataLookup` 类型来确定是否可以符合匹配条件。
+
+注意 `MetadataLookup` 是一个函数式接口：
+
+```
+@FunctionalInterface
+public interface MetadataLookup<T> {
+    T inspect(Method method);
+}
+```
+
+------
+
+回到上面的方法中，筛选方法中传入的 Lambda 表达式如下：
+
+```
+    Map<Method, T> methods = MethodIntrospector.selectMethods(userType,
+            (MethodIntrospector.MetadataLookup<T>) method -> {
+                try {
+                    // 3.5
+                    return getMappingForMethod(method, userType);
+                }
+                catch (Throwable ex) {
+                    throw new IllegalStateException("Invalid mapping on handler class [" +
+                            userType.getName() + "]: " + method, ex);
+                }
+            });
+```
+
+它最终是调 `getMappingForMethod` 方法：
