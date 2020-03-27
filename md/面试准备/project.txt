@@ -1,0 +1,32 @@
+wxrpt
+
+tomcat jsp oracle jquery
+
+1.数据管理页面(对数据字段进行CRUD)
+2.报表管理页面
+3.报表单元格解析与录入(poi)
+ poi可能会遇到OOM问题 (1.excel文件较小,没遇到,最简单的处理方式是增加堆内存)
+ sax解析的方式,节约内存
+4.报表文件生成
+5.报表权限管理(用户对应角色 角色对应功能 功能关联报表)
+
+daf
+展示页面 daf.wxtrust.com:7003/#/home
+tomcat spring springmvc mybatis druid pageHelper oracle Vue 
+
+1.为了优化接口响应速度,使用spring事件机制,将请求记录入表后,直接返回结果已接受,异步处理请求
+真实处理结果可以通过setTimeout定时回调
+(模拟mq)
+2.参考hutools,使用LinkedHashMap实现本地LRU缓存
+3.springmvc流程
+以@RequestBody注解为例
+4.当期市值 + 当期累计卖出收入 - 当期累计买入成本 = 当前收益
+5.Vue mint-ui v-infinite-scroll 
+    - 必须有容器 overflow:scroll|auto
+    - 必须充满容器,即第一次加载的数量pageSize足够大!
+
+
+redis!!!
+mq!!
+spring springmvc!
+linux sed /awk命令
