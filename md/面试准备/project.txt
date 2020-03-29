@@ -16,7 +16,8 @@ tomcat spring springmvc mybatis druid pageHelper oracle Vue
 
 1.为了优化接口响应速度,使用spring事件机制,将请求记录入表后,直接返回结果已接受,异步处理请求
 真实处理结果可以通过setTimeout定时回调
-(模拟mq)
+注意线程池的原理(核心线程数量,queue数量,最大线程数量,拒绝策略)...
+(模拟mq,包括手动确认,手动ack...)
 2.参考hutools,使用LinkedHashMap实现本地LRU缓存
 3.springmvc流程
 以@RequestBody注解为例
@@ -24,7 +25,8 @@ tomcat spring springmvc mybatis druid pageHelper oracle Vue
 5.Vue mint-ui v-infinite-scroll 
     - 必须有容器 overflow:scroll|auto
     - 必须充满容器,即第一次加载的数量pageSize足够大!
-
+6.在spring容器中,如果service调用自身的方法,将无法使用声明式事务
+事务是由代理类实现的,如果直接调用自身的方法,将无法
 
 redis!!!
 mq!!
