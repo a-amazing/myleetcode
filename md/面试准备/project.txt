@@ -32,6 +32,7 @@ tomcat spring springmvc mybatis druid swagger pageHelper oracle Vue
 6.在spring容器中,如果service调用自身的方法,将无法使用声明式事务
 事务是由代理类实现的,如果直接调用自身的方法,将无法
 7.Vue 在v-html里填充html元素,样式不生效
+8.canvas 上一个页面将元素向下滚动后,y值为负,影响canvas签名页面的签名
 
 redis!!!
 mq!!
