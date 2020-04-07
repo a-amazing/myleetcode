@@ -1,20 +1,26 @@
 wxrpt
-
 tomcat jsp oracle jquery
 
-元数据管理模块,报表配置管理,报表数据核对,报表填报管理,报表数据导入与导出
+元数据管理模块,报表配置管理,报表数据核对,报表数据校验,报表填报管理,报表数据导入与导出
+
+为发挥数据中心作用,减少业务人员多次查询,翻阅资料的负担,开发报表管理系统
 
 1.数据管理页面(对数据字段进行CRUD)
 2.报表管理页面
 3.报表单元格解析与录入(poi)
  poi可能会遇到OOM问题 (1.excel文件较小,没遇到,最简单的处理方式是增加堆内存)
  sax解析的方式,节约内存
-4.报表文件生成
+ easyPoi
+4.报表文件生成(Cell映射 多行记录重复插入)
 5.报表权限管理(用户对应角色 角色对应功能 功能关联报表)
+6.使用aop记录报表修改日志记录
 
 daf
 展示页面 daf.wxtrust.com:7003/#/home
 tomcat spring springmvc mybatis druid swagger pageHelper oracle Vue 
+
+捐赠人建议基金(Donor-Advised Fund)是一种帮助捐赠人开设专属慈善账户,在捐赠财产和资助方面长期享有建议权的慈善基金.
+捐助人通过申请DAF账户,便捷,高效,透明的参与符合其意志的慈善公益活动
 
 用户中心,交易管理,定时任务,基金会后台管理(资助项目管理,产品信息管理)
 
@@ -33,6 +39,7 @@ tomcat spring springmvc mybatis druid swagger pageHelper oracle Vue
 事务是由代理类实现的,如果直接调用自身的方法,将无法
 7.Vue 在v-html里填充html元素,样式不生效
 8.canvas 上一个页面将元素向下滚动后,y值为负,影响canvas签名页面的签名
+(解决方案:默认y值为上部分的高度)
 
 redis!!!
 mq!!
