@@ -45,3 +45,6 @@ redis!!!
 mq!!
 spring springmvc!
 linux sed /awk命令
+
+分组列表中的元素时,为了保证和获取顺序一致,使用LinkedHashMap替换HashMap
+(LinkedHashMap中存在链表,保证元素按照插入顺序排列)
