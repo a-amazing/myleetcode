@@ -6,15 +6,9 @@
 
 (eg.ThreadLocal)
 
-
-
-```
 To help deal with very large and long-lived usages, the hash table entries use WeakReferences for keys. However, since reference queues are not used, stale entries are guaranteed to be removed only when the table starts running out of space.
-```
 
-```text
 为了应对较大容量和较长生命周期的用途,哈希表的键值对使用了WewakReferences作为键.然而,因为没有使用应用队列,所以旧键只会在哈希表需要扩容时被移除
-```
 
 ---
 

@@ -35,10 +35,20 @@ public void method(){
 从ThreadLocalMap的Entry类的构造方法可以看到,map的key就是ThreadLocal对象本身
 
 ```java
-Entry(ThreadLocal<?> k, Object v) {
-    super(k);
-    value = v;
-}
+static class Entry extends WeakReference<ThreadLocal<?>> {
+            /** The value associated with this ThreadLocal. */
+            Object value;
+			/**
+			注意,Entry类继承自WeakReference<ThreadLocal<?>>
+			再看它的构造方法,将ThreadLocal对象传入父类的构造方法
+			所以Entry中的key是虚引用,会在下次GC时被清除
+			但只有Key是弱引用类型的，Value并非弱引用
+			*/
+            Entry(ThreadLocal<?> k, Object v) {
+                super(k);
+                value = v;
+            }
+        }
 ```
 
 ThreadLocal本身并不持有ThreadLocalMap对象,那么,ThreadLocalMap由谁持有呢?
@@ -46,6 +56,12 @@ ThreadLocal本身并不持有ThreadLocalMap对象,那么,ThreadLocalMap由谁持
 从ThreadLocal的get()方法可知ThreadLocalMap由线程对象Thread持有
 
 ```java
+/**
+1.获取当前线程的ThreadLocalMap对象threadLocals
+2.从map中获取线程存储的K-V Entry节点。
+3.map不为空的话,从Entry节点获取存储的Value副本值返回。
+4.map为空的话返回初始值null，即线程变量副本为null，在使用时需要注意判断NullPointerException。
+*/
 public T get() {
         Thread t = Thread.currentThread();
         ThreadLocalMap map = getMap(t);
@@ -74,8 +90,3 @@ public class Thread implements Runnable {
 }
 ```
 
----
-
-ThreadLocal在Spring中的应用
-
-//TODO
