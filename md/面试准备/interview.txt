@@ -1,0 +1,21 @@
+dubbo
+provider consumer registry admin
+dubbo常用协议:
+    dubbo
+    http
+    hessian
+dubbo负载均衡:
+
+
+rpc重要组件:
+    序列化
+    
+
+阅读源码部分:
+    1.springmvc 参数解析和绑定 @RequestBody + 自定义注解
+    2.springboot 自动配置原理 自定义starter
+
+
+mysql相关:
+    1.最重要的是索引部分
+    2.为什么使用了索引还是慢查询(使用了索引不代表正确使用索引或者是=查询)
