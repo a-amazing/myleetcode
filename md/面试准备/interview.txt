@@ -1,7 +1,7 @@
 dubbo
 provider consumer registry admin
 dubbo常用协议:
-    dubbo
+    dubbo TCP长连接 
     http
     hessian
 dubbo负载均衡:
@@ -14,8 +14,48 @@ rpc重要组件:
 阅读源码部分:
     1.springmvc 参数解析和绑定 @RequestBody + 自定义注解
     2.springboot 自动配置原理 自定义starter
+        spring.factory 自动配置
+    3.springbean的生命周期
+        测试结果入下
+        contruction(构造方法) --> populate(注入属性) --> postConstruction --> init方法(init="") --> 正常注册使用 --> preDestroy --> destroy方法(destroy = "")
+        创建bean的源码摘录
 
-
-mysql相关:
+mysql
     1.最重要的是索引部分
+        sql调优
+        explain 执行sql 结果字段
+            select_type
+            type 最好到最差的连接类型为system、const、eq_reg、ref、range、index和ALL，一般来说，得保证查询至少达到range级别，最好能达到ref
+                system、const： 可以将查询的变量转为常量. 如id=1; id为 主键或唯一键.
+                eq_ref： 访问索引,返回某单一行的数据.(通常在联接时出现，查询使用的索引为主键或惟一键)
+                ref： 访问索引,返回某个值的数据.(可以返回多行) 通常使用=时发生 
+                range： 这个连接类型使用索引返回一个范围中的行，比如使用>或<查找东西，并且该字段上建有索引时发生的情况(注:不一定好于index) 
+                index： 以索引的顺序进行全表扫描，优点是不用排序,缺点是还要全表扫描 
+                ALL： 全表扫描，应该尽量避免
+            possible_keys 显示可能应用在这张表中的索引 如果为空，表示没有可能应用的索引
+            key 实际使用的索引 如果为NULL，则没有使用索引
+            key_len 使用的索引的长度
+            ref 显示索引的哪一列被使用了，如果可能的话，是一个常数
+            rows MySQL认为必须检索的用来返回请求数据的行数
+            extra 关于MySQL如何解析查询的额外信息，主要有以下几种(*打头为必须优化项)
+                using index： 只用到索引,可以避免访问表，性能很高。 
+                using where： 使用到where来过滤数据， 不是所有的where clause都要显示using where. 如以=方式访问索引。
+                *using tmporary： 用到临时表去处理当前的查询。
+                *using filesort： 用到额外的排序，此时mysql会根据联接类型浏览所有符合条件的记录，并保存排序关键字和行指针，然后排序关键字并按顺序检索行。(当使用order by v1,而没用到索引时,就会使用额外的排序)。
+                range checked for eache record(index map:N)： 没有好的索引可以使用。
+                Using index for group-by：表明可以在索引中找到分组所需的所有数据，不需要查询实际的表。explain select user_id from t_order group by user_id;
+
+            force index强制走正确的索引
+            新建索引或者删掉错误的索引
+
+        覆盖索引 索引中包含了需要查询的字段,无需回表(回主键索引)
+        联合索引
+        最左匹配原则(包含联合索引的最左匹配和模糊查询 itemname like 'abc%')
+        索引下推优化（index condition pushdown --> mysql 5.6) 可以在索引遍历过程中，对索引中包含的字段先做判断，直接过滤掉不满足条件的记录，减少回表次数
+        前缀索引 MySQL是支持前缀索引的，定义字符串的一部分作为索引。默认地，如果创建索引的语句不指定前缀长度，那么索引就会包含整个字符串
+        反转字符串REVERSE（）函数翻转进行前缀索引,截去前端相同部分进行索引
+
+        条件字段函数操作 where a + 1 = 10000 与 where a = 9999
+        隐式类型转换 where id = 1 (id是varchar类型)
+        隐式字符编码转换 utf8mb4,utf8，因为utf8mb4是utf8的超集，一旦两个字符比较，就会转换为utf8mb4再比较
     2.为什么使用了索引还是慢查询(使用了索引不代表正确使用索引或者是=查询)
