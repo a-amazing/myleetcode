@@ -14,7 +14,27 @@ rpc重要组件:
 阅读源码部分:
     1.springmvc 参数解析和绑定 @RequestBody + 自定义注解
     2.springboot 自动配置原理 自定义starter
-        spring.factory 自动配置
+        spring.factory 自动配置   
+            @SpringbootApplication
+                @SpringBootConfiguration ≈ @Configuration 
+                    一个被 @Configuration 标注的类，相当于一个 applicationContext.xml 的配置文件
+                附加作用
+                @EnableAutoConfiguration
+                @ComponentScan 默认扫描当前配置类所在包及子包下的所有组件,exclude 属性会将主启动类、自动配置类屏蔽掉。
+        SpringFramework的手动装配
+            使用模式注解 @Component 等（Spring2.5+）
+            使用配置类 @Configuration 与 @Bean （Spring3.0+）
+            使用模块装配 @EnableXXX 与 @Import （Spring3.1+）
+
+        SpringBoot的自动配置完全由 @EnableAutoConfiguration 开启。
+            @AutoConfigurationPackage
+            @Import(AutoConfigurationImportSelector.class)
+            public @interface EnableAutoConfiguration
+            组合注解
+            @AutoConfigurationPackage --> @Import(AutoConfigurationPackages.Registrar.class) --> 获取主启动类的所在包
+            @Import(AutoConfigurationImportSelector.class) --> 导入自动配置类
+
+
     3.springbean的生命周期
         测试结果入下
         contruction(构造方法) --> populate(注入属性) --> postConstruction --> init方法(init="") --> 正常注册使用 --> preDestroy --> destroy方法(destroy = "")
