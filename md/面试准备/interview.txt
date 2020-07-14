@@ -33,7 +33,22 @@ rpc重要组件:
             组合注解
             @AutoConfigurationPackage --> @Import(AutoConfigurationPackages.Registrar.class) --> 获取主启动类的所在包
             @Import(AutoConfigurationImportSelector.class) --> 导入自动配置类
+                AutoConfigurationImportSelector
+                    DeferredImportSelector ImportSelector 的一种扩展，在处理完所有 @Configuration 类型的Bean之后运行。当所选导入为 @Conditional 时，这种类型的选择器特别有用。
+                    DeferredImportSelector 的执行时机，是在 @Configuration 注解中的其他逻辑被处理完毕之后（包括对 @ImportResource、@Bean 这些注解的处理）再执行，换句话说，DeferredImportSelector 的执行时机比 ImportSelector 更晚。
+                public static final String FACTORIES_RESOURCE_LOCATION = "META-INF/spring.factories";
+                在 spring-boot-autoconfiguration 包下 META-INF/spring.factories
+                取出 org.springframework.boot.autoconfigure.EnableAutoConfiguration 指定的所有自动配置类
 
+                --扩展 SPI全称为 Service Provider Interface，是jdk内置的一种服务提供发现机制
+                  SPI规定，所有要预先声明的类都应该放在 META-INF/services 中。配置的文件名是接口/抽象类的全限定名，文件内容是抽象类的子类或接口的实现类的全限定类名，如果有多个，借助换行符，一行一个
+                  具体使用时，使用jdk内置的 ServiceLoader 类来加载预先配置好的实现类
+                  (必须是接口和实现类的关系)
+                  ```ServiceLoader<SpiDemoInterface> loaders = ServiceLoader.load(SpiDemoInterface.class);
+                  loaders.foreach(SpiDemoInterface::test);```
+
+                  SpringFramework 实现了自己的SPI技术，相比较于Java原生的SPI更灵活
+                  (key-value形式,key可以是任意字符串(如注解的全路径类名))
 
     3.springbean的生命周期
         测试结果入下
