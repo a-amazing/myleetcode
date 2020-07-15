@@ -1,8 +1,8 @@
 dubbo
-provider consumer registry admin
+    provider consumer registry admin
 dubbo常用协议:
-    dubbo TCP长连接 
-    http
+    dubbo   TCP长连接 
+    http    
     hessian
 dubbo负载均衡:
 
@@ -20,7 +20,7 @@ rpc重要组件:
                     一个被 @Configuration 标注的类，相当于一个 applicationContext.xml 的配置文件
                 附加作用
                 @EnableAutoConfiguration
-                @ComponentScan 默认扫描当前配置类所在包及子包下的所有组件,exclude 属性会将主启动类、自动配置类屏蔽掉。
+                @ComponentScan 默认扫描当前配置类所在包及子包下的所有组件,ex饭clude 属性会将主启动类、自动配置类屏蔽掉。
         SpringFramework的手动装配
             使用模式注解 @Component 等（Spring2.5+）
             使用配置类 @Configuration 与 @Bean （Spring3.0+）
@@ -49,6 +49,23 @@ rpc重要组件:
 
                   SpringFramework 实现了自己的SPI技术，相比较于Java原生的SPI更灵活
                   (key-value形式,key可以是任意字符串(如注解的全路径类名))
+        
+        以SpringMvc自动配置为例:
+            WebMvcAutoConfiguration
+                @AutoConfigureAfter({ DispatcherServletAutoConfiguration.class, TaskExecutionAutoConfiguration.class,ValidationAutoConfiguration.class })
+                    mvc配置再dispatcherServlet之后配置
+                    DispatcherServletAutoConfiguration
+                    @AutoConfigureAfter(ServletWebServerFactoryAutoConfiguration.class)
+
+                    dispatcherServlet配置需要在web容器配置完成后
+
+                    ServletWebServerFactoryAutoConfiguration
+                    @Import({ ServletWebServerFactoryAutoConfiguration.BeanPostProcessorsRegistrar.class,
+                                ServletWebServerFactoryConfiguration.EmbeddedTomcat.class,
+                                ServletWebServerFactoryConfiguration.EmbeddedJetty.class,
+                                ServletWebServerFactoryConfiguration.EmbeddedUndertow.class })
+
+                    ServletWebServerFactoryConfiguration.EmbeddedTomcat
 
     3.springbean的生命周期
         测试结果入下
@@ -70,8 +87,8 @@ mysql
             select_type
             type 最好到最差的连接类型为system、const、eq_reg、ref、range、index和ALL，一般来说，得保证查询至少达到range级别，最好能达到ref
                 system、const： 可以将查询的变量转为常量. 如id=1; id为 主键或唯一键.
-                eq_ref：        访问索引,返回某单一行的数据.(通常在联表查询时出现，查询使用的索引为主键或惟一键)
-                ref：           访问索引,返回某个值的数据.(可以返回多行) 通常使用=时发生 
+                eq_ref：        访问索引,返回某单一行的数据.(通常在联表查询时出现，查询使用的索引为主键或唯一键)
+                ref：           访问索引,返回某个值的数据(可以返回多行) 通常使用=时发生 
                 range：         这个连接类型使用索引返回一个范围中的行，比如使用>或<查找东西，并且该字段上建有索引时发生的情况(注:不一定好于index) 
                 index：         以索引的顺序进行全表扫描，优点是不用排序,缺点是还要全表扫描 
                 ALL：           全表扫描，应该尽量避免
@@ -88,8 +105,8 @@ mysql
                 range checked for eache record(index map:N)： 没有好的索引可以使用。
                 Using index for group-by：表明可以在索引中找到分组所需的所有数据，不需要查询实际的表。explain select user_id from t_order group by user_id;
 
-            force index强制走正确的索引
-            新建索引或者删掉错误的索引
+            mysql使用了错误的索引优化手段
+                force index强制走正确的索引/新建索引或者删掉错误的索引
 
         覆盖索引 索引中包含了需要查询的字段,无需回表(回主键索引)
         联合索引
