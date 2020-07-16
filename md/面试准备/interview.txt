@@ -67,6 +67,19 @@ rpc重要组件:
 
                     ServletWebServerFactoryConfiguration.EmbeddedTomcat
 
+                    WebServerFactoryCustomizerBeanPostProcessor WebServerFactoryCustomizer 类型的 Bean 应用于 WebServerFactory 类型的 Bean(webserver定制器)
+                    ErrorPageRegistrarBeanPostProcessor ErrorPageRegistrars 应用于 ErrorPageRegistry 类型的Bean
+
+                    一般情况下，修改 SpringBoot 的配置，都是通过 application.yml 显式地声明配置。除此之外，还可以使用 Customizer 定制器机制。
+                    ServletWebServerFactoryCustomizer TomcatServletWebServerFactoryCustomizer  通过两个定制器,创建tomcat server 实例
+
+                    @ConfigurationProperties(prefix = "server", ignoreUnknownFields = true)
+                    public class ServerProperties {...}
+                    @ConfigurationProperties 的作用：可用于某个类上，设置属性profix用于指定在工程的全局配置文件（application.properties 或 application.yml）中的配置的根信息。
+                    简言之， @ConfigurationProperties 可以实现指定属性开头的属性值注入。
+                    那么 ServerProperties 的属性值来源，就是全局配置文件中的server开头的所有配置。
+                    (springboot 属性的优先级!)
+
     3.springbean的生命周期
         测试结果入下
         contruction(构造方法) --> populate(注入属性) --> postConstruction --> init方法(init="") --> 正常注册使用 --> preDestroy --> destroy方法(destroy = "")
