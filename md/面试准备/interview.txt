@@ -79,6 +79,9 @@ rpc重要组件:
                     简言之， @ConfigurationProperties 可以实现指定属性开头的属性值注入。
                     那么 ServerProperties 的属性值来源，就是全局配置文件中的server开头的所有配置。
                     (springboot 属性的优先级!)
+                    SpringBoot注册传统Servlet三大组件
+                        组件扫描@ServletComponentScan 在启动类上标注 @ServletComponentScan 注解，指定 value/basePackage，即可扫描指定包及子包下所有的 Servlet 组件
+                        借助RegistrationBean 使用时，只需要在配置类中注册一个 ServletRegistrationBean，创建它的对象时，使用有参构造方法，传入 Servlet 和 urlMapping 即可
 
     3.springbean的生命周期
         测试结果入下
