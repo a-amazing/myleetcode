@@ -82,8 +82,44 @@ rpc重要组件:
                     SpringBoot注册传统Servlet三大组件
                         组件扫描@ServletComponentScan 在启动类上标注 @ServletComponentScan 注解，指定 value/basePackage，即可扫描指定包及子包下所有的 Servlet 组件
                         借助RegistrationBean 使用时，只需要在配置类中注册一个 ServletRegistrationBean，创建它的对象时，使用有参构造方法，传入 Servlet 和 urlMapping 即可
+    3.springboot 启动过程
+        1.main方法进入
+        public static void main(String[] args) {
+            SpringApplication.run(DemoApplication.class, args);
+        }
+        2.SpringApplication.run方法
+        public static ConfigurableApplicationContext run(Class<?> primarySource, String... args) {
+            // 调下面重载的方法
+            return run(new Class<?>[] { primarySource }, args);
+        }
+        public static ConfigurableApplicationContext run(Class<?>[] primarySources, String[] args) {
+            return new SpringApplication(primarySources).run(args);
+        }
+        3.SpringApplication构造方法(创建SpringApplication)
+        public SpringApplication(Class<?>... primarySources) {
+            this(null, primarySources);
+        }
 
-    3.springbean的生命周期
+        @SuppressWarnings({ "unchecked", "rawtypes" })
+        public SpringApplication(ResourceLoader resourceLoader, Class<?>... primarySources) {
+            // resourceLoader为null
+            this.resourceLoader = resourceLoader;
+            Assert.notNull(primarySources, "PrimarySources must not be null");
+            // 将传入的DemoApplication启动类放入primarySources中，这样应用就知道主启动类在哪里，叫什么了
+            // SpringBoot一般称呼这种主启动类叫primarySource（主配置资源来源）
+            this.primarySources = new LinkedHashSet<>(Arrays.asList(primarySources));
+            // 3.1 判断当前应用环境(响应式[Reactive]web,非web,传统servletweb)
+            this.webApplicationType = WebApplicationType.deduceFromClasspath();
+            (初始化器和监听器都是通过spring的spi机制导入)
+            // 3.2 设置初始化器
+            setInitializers((Collection) getSpringFactoriesInstances(ApplicationContextInitializer.class));
+            // 3.3 设置监听器
+            setListeners((Collection) getSpringFactoriesInstances(ApplicationListener.class));
+            // 3.4 确定主配置类
+            this.mainApplicationClass = deduceMainApplicationClass();
+        }
+
+    4.springbean的生命周期
         测试结果入下
         contruction(构造方法) --> populate(注入属性) --> postConstruction --> init方法(init="") --> 正常注册使用 --> preDestroy --> destroy方法(destroy = "")
         创建bean的源码摘录
@@ -143,6 +179,9 @@ mysql
             将影响条件较大的语句在最后进行执行(最可能造成锁冲突,最影响并发度)
             (如基金会总账户和个人账户,先进行个人账户相关的操作,再进行基金会账户操作)
             (避免产生死锁问题,按照同一个顺序加锁,L1,L2,L3...)
+
+    复核功能,先保存修改,再进行确认与WAL(write ahead log)的关系
+    出入库流程的功能分析
 
 mq:rabbitmq
     1.基础:
