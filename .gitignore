@@ -30,7 +30,7 @@ out/*
 target/*
 .project
 *.iml
-.settings
-.idea
+.settings/
+.idea/
 .classpath
 .factorypath
