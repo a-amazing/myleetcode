@@ -200,6 +200,26 @@ mysql
         如何合理的存储身份证号
             1.倒序索引,建立身份证号倒序
             2.额外的hash字段
+    5.join实现(等值join)
+        1.NestedLoopJoin 两层循环实现(M*N){ //在记录数较少时,比hash join更快
+            for(int i=0;i<M;i++){
+                for(int j=0;j<N;j++){
+
+                }
+            }
+        }
+        2.SortMergeJoin
+            参考leetcode合并两个有序数组
+            分别在M,N的索引设置起始指针,对比字段的值是否相等,不相等则较小的那方往后移动一个指针
+        3.HashJoin hash实现
+            先保存较小数量的记录数(假设N<M){
+                for(int i=0;i<N;i++){
+                    map.put(N.id,N);
+                }
+                for(int i=0;i<M;i++){
+                    map.get(M.id);//进行关联
+                }
+            }
 
     复核功能,先保存修改,再进行确认与WAL(write ahead log)的关系
     出入库流程的功能分析
@@ -210,7 +230,11 @@ mq:rabbitmq
         - CSDN文章中说listener的bean创建早于mapper组件bean
             通过SpringContextHolder工具类
 
-
+TCP/http
+    TCP:(参考详解TCP公众号文章)
+        三次握手
+        四次挥手
+        流量控制
 
 沟通:
     不要让人觉得不喜欢沟通交流
