@@ -127,6 +127,15 @@ rpc重要组件:
 				invokeListener(listener, event);
 			}*/
 
+            //Load beans into the application context. 加载bean进入ioc容器
+            protected void load(ApplicationContext context, Object[] sources) {
+                //首先获取BeanDefinitionRegistry,在创建BeanDefinitionLoader(先准备好房子,再让客人进来)
+                //以为IOC容器实现了BeanDefinitionRegistry接口,把IOC容器返回去了
+                BeanDefinitionLoader loader = createBeanDefinitionLoader(getBeanDefinitionRegistry(context), sources);
+            }
+
+            接下来就是BeanDefinition的读取和保存
+
             一个很有意思的小坑:
             spring:
                 main:
