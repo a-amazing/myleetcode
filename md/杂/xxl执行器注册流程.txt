@@ -1,0 +1,87 @@
+public void start() {
+        registryThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (!toStop) {
+                    try {
+                        // auto registry group
+                        List<XxlJobGroup> groupList = XxlJobAdminConfig.getAdminConfig().getXxlJobGroupDao().findByAddressType(0);
+//						if (groupList!=null && !groupList.isEmpty()) {
+
+                        // remove dead address (admin/executor)
+                        XxlJobAdminConfig.getAdminConfig().getXxlJobRegistryDao().removeDead(RegistryConfig.DEAD_TIMEOUT);
+
+                        // fresh online address (admin/executor)
+                        Map<String, List<String>> appAddressMap = new ConcurrentHashMap<String, List<String>>();
+                        appAddressMap = XxlJobScheduler.jobGroupCache;
+                        List<XxlJobRegistry> list = XxlJobAdminConfig.getAdminConfig().getXxlJobRegistryDao().findAll(RegistryConfig.DEAD_TIMEOUT);
+                        if (list != null) {
+                            for (XxlJobRegistry item : list) {
+                                if (RegistryConfig.RegistType.EXECUTOR.name().equals(item.getRegistryGroup())) {
+                                    String appName = item.getRegistryKey();
+                                    List<String> registryList = appAddressMap.get(appName);
+                                    if (registryList == null) {
+                                        registryList = new ArrayList<String>();
+                                    }
+
+                                    if (!registryList.contains(item.getRegistryValue())) {
+                                        registryList.add(item.getRegistryValue());
+                                    }
+                                    appAddressMap.put(appName, registryList);
+                                }
+                            }
+                        }
+
+                        // fresh group address
+                        for (Map.Entry<String, List<String>> entry : appAddressMap.entrySet()) {
+                            for (XxlJobGroup group : groupList) {
+                                if (entry.getKey().equals(group.getAppName())) {
+                                    List<String> registryList = appAddressMap.get(group.getAppName());
+                                    String addressListStr = null;
+                                    if (registryList != null && !registryList.isEmpty()) {
+                                        Collections.sort(registryList);
+                                        addressListStr = Joiner.on(",").join(registryList);
+                                    }
+                                    group.setAddressList(addressListStr);
+                                    XxlJobAdminConfig.getAdminConfig().getXxlJobGroupDao().update(group);
+                                } else {
+                                    if ("xxl-job-executor-sample".equals(group.getAppName())) {
+                                        continue;
+                                    }
+                                    XxlJobAdminConfig.getAdminConfig().getXxlJobGroupDao().remove(group.getId());
+                                }
+                            }
+                            String appName = entry.getKey();
+                            String addressListStr = Joiner.on(",").join(entry.getValue());
+                            XxlJobGroup group = new XxlJobGroup();
+                            group.setAppName(appName);
+                            group.setAddressType(0);
+                            group.setAddressList(addressListStr);
+                            group.setTitle("自动注入的执行器");
+                            int order = XxlJobAdminConfig.getAdminConfig().getXxlJobGroupDao().findMaxOrder();
+                            group.setOrder(order + 1);
+                            List<XxlJobGroup> oldjobGroup = XxlJobAdminConfig.getAdminConfig().getXxlJobGroupDao().findByAppName(group);
+                            if (oldjobGroup == null || oldjobGroup.isEmpty()) {
+                                XxlJobAdminConfig.getAdminConfig().getXxlJobGroupDao().save(group);
+                            }
+                        }
+                    } catch (Exception e) {
+                        if (!toStop) {
+                            logger.error(">>>>>>>>>>> xxl-job, job registry monitor thread error:{}", e);
+                        }
+                    }
+                    try {
+                        TimeUnit.SECONDS.sleep(RegistryConfig.BEAT_TIMEOUT);
+                    } catch (InterruptedException e) {
+                        if (!toStop) {
+                            logger.error(">>>>>>>>>>> xxl-job, job registry monitor thread error:{}", e);
+                        }
+                    }
+                }
+                logger.info(">>>>>>>>>>> xxl-job, job registry monitor thread stop");
+            }
+        });
+        registryThread.setDaemon(true);
+        registryThread.setName("xxl-job, admin JobRegistryMonitorHelper");
+        registryThread.start();
+    }

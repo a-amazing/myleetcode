@@ -1,0 +1,59 @@
+/**
+*
+*初始化事件广播器的方法
+*/
+protected void initApplicationEventMulticaster() {
+	ConfigurableListableBeanFactory beanFactory = getBeanFactory();
+	//判断有没有一个name是“applicationEventMulticaster”且实现了“ ApplicationEventMulticaster”的bean，有的话那它就是eventMultiCaster
+	if (beanFactory.containsLocalBean(APPLICATION_EVENT_MULTICASTER_BEAN_NAME)) {
+		this.applicationEventMulticaster =
+				beanFactory.getBean(APPLICATION_EVENT_MULTICASTER_BEAN_NAME, ApplicationEventMulticaster.class);
+		if (logger.isDebugEnabled()) {
+			logger.debug("Using ApplicationEventMulticaster [" + this.applicationEventMulticaster + "]");
+		}
+	}
+	else {
+		// 没有这样一个bean，那就会创建一个默认的
+		this.applicationEventMulticaster = new SimpleApplicationEventMulticaster(beanFactory);
+		beanFactory.registerSingleton(APPLICATION_EVENT_MULTICASTER_BEAN_NAME, this.applicationEventMulticaster);
+		if (logger.isDebugEnabled()) {
+			logger.debug("Unable to locate ApplicationEventMulticaster with name '" +
+					APPLICATION_EVENT_MULTICASTER_BEAN_NAME +
+					"': using default [" + this.applicationEventMulticaster + "]");
+		}
+	}
+}
+
+/**
+*
+* 广播事件的方法
+*/
+public void multicastEvent(final ApplicationEvent event, ResolvableType eventType) {
+	// 这个是用来根据event的类型找到合适的listener的
+	ResolvableType type = (eventType != null ? eventType : resolveDefaultEventType(event));
+	for (final ApplicationListener<?> listener : getApplicationListeners(event, type)) {
+					
+		Executor executor = getTaskExecutor();
+		// executor不是空的时候会在executor中激活listener
+		if (executor != null) {
+			executor.execute(new Runnable() {
+				@Override
+				public void run() {
+					invokeListener(listener, event);
+				}
+			});
+		}
+		// 否则就直接在当前调用线程中激活listener 
+		else {
+			invokeListener(listener, event);
+		}
+	}
+}
+
+
+//使用线程池运行listener
+<bean id="executorService" class="java.util.concurrent.Executors" factory-method="newCachedThreadPool"></bean>
+
+<bean id="applicationEventMulticaster" class="org.springframework.context.event.SimpleApplicationEventMulticaster">
+       <property name="taskExecutor" ref="executorService"></property>
+</bean>
