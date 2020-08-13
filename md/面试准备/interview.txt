@@ -8,6 +8,43 @@ dubbo基础:
             com.xxx.impl.XxxServiceImpl2
             ServiceLoader<Log> serviceLoader =  ServiceLoader.load(XxService.class); 
             缺点:无法按需实例化实现类,必须在初始化接口实现时将所有的实现类存入缓存
+        
+        dubbo SPI 
+            META-INF/services/ 目录：该目录下的 SPI 配置文件用来兼容 JDK SPI
+            META-INF/dubbo/ 目录：该目录用于存放用户自定义 SPI 配置文件
+            META-INF/dubbo/internal/ 目录：该目录用于存放 Dubbo 内部使用的 SPI 配置文件
+
+            Dubbo 将 SPI 配置文件改成了 KV 格式
+                dubbo=org.apache.dubbo.rpc.protocol.dubbo.DubboProtocol
+
+             @SPI 注解
+                Dubbo 中某个接口被 @SPI注解修饰时，就表示该接口是扩展接口
+                @SPI 注解的 value 值指定了默认的扩展名称(@SPI("dubbo"))
+            
+            LoadingStrategy (加载策略接口)
+                DubboInternalLoadingStrategy > DubboLoadingStrategy > ServicesLoadingStrategy
+                (dubbo内部加载策略) > (dubbo加载策略) > (SPI加载策略)
+
+            @Adaptive 注解与适配器    
+                Dubbo 中的 ExtensionFactory 接口有三个实现类，
+                如下图所示，ExtensionFactory 接口上有 @SPI 注解，
+                AdaptiveExtensionFactory 实现类上有 @Adaptive 注解。 --> 被标注的类是适配器类    
+                ( https://s0.lgstatic.com/i/image/M00/3E/99/Ciqc1F8s-D6AZFtdAAC318rtQ-I710.png )
+                AdaptiveExtensionFactory 不实现任何具体的功能，
+                而是用来适配 ExtensionFactory 的 SpiExtensionFactory 和 SpringExtensionFactory 这两种实现。
+                AdaptiveExtensionFactory 会根据运行时的一些状态来选择具体调用 ExtensionFactory 的哪个实现。
+
+                @Adaptive 注解还可以加到接口方法之上，Dubbo 会动态生成适配器类
+            
+            @Activate注解与自动激活
+                group 属性：修饰的实现类是在 Provider 端被激活还是在 Consumer 端被激活。
+                value 属性：修饰的实现类只在 URL 参数中出现指定的 key 时才会被激活。
+                order 属性：用来确定扩展实现类的排序。
+
+                将包含 @Activate 注解的实现类缓存到 cachedActivates 这个实例字段
+                （Map<String, Object>类型，Key为扩展名，Value为 @Activate 注解）
+        
+        
 dubbo常用协议:
     dubbo   TCP长连接 
     http    
